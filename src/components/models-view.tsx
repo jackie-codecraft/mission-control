@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   AlertTriangle,
   Bot,
@@ -24,6 +24,11 @@ import {
   X,
 } from "lucide-react";
 import { requestRestart } from "@/lib/restart-store";
+import {
+  subscribeGatewayStatus,
+  getGatewayStatusSnapshot,
+  getGatewayStatusServerSnapshot,
+} from "@/lib/gateway-status-store";
 import { cn } from "@/lib/utils";
 import { LoadingState } from "@/components/ui/loading-state";
 import { ApiWarningBadge } from "@/components/ui/api-warning-badge";
@@ -433,7 +438,10 @@ export function ModelsView() {
 
   const fetchModels = useCallback(async () => {
     try {
-      const res = await fetch("/api/models?scope=status", { cache: "no-store" });
+      const res = await fetch("/api/models?scope=status", {
+        cache: "no-store",
+        signal: AbortSignal.timeout(30000),
+      });
       const data = await res.json();
       setApiWarning(
         typeof data.warning === "string" && data.warning.trim() ? data.warning.trim() : null,
@@ -509,7 +517,10 @@ export function ModelsView() {
       }
 
       try {
-        const accountsRes = await fetch("/api/accounts", { cache: "no-store" });
+        const accountsRes = await fetch("/api/accounts", {
+          cache: "no-store",
+          signal: AbortSignal.timeout(15000),
+        });
         const accountsData = (await accountsRes.json()) as
           | (ModelsCredentialSnapshot & { error?: string })
           | { error?: string };
@@ -552,6 +563,27 @@ export function ModelsView() {
   useEffect(() => {
     fetchAllModels();
   }, [fetchAllModels]);
+
+  // Re-fetch models when gateway comes back online after a restart
+  const gwStatus = useSyncExternalStore(
+    subscribeGatewayStatus,
+    getGatewayStatusSnapshot,
+    getGatewayStatusServerSnapshot,
+  );
+  const prevGwStatusRef = useRef(gwStatus.status);
+  useEffect(() => {
+    const prev = prevGwStatusRef.current;
+    prevGwStatusRef.current = gwStatus.status;
+    if (gwStatus.status === "online" && prev !== "online") {
+      // Gateway just came back — refetch after a short delay for it to settle
+      const t = setTimeout(() => {
+        setLoading(true);
+        fetchModels();
+        fetchAllModels();
+      }, 1500);
+      return () => clearTimeout(t);
+    }
+  }, [gwStatus.status, fetchModels, fetchAllModels]);
 
   const handleConnectProvider = useCallback(async () => {
     if (!connectProvider) return;
@@ -731,14 +763,15 @@ export function ModelsView() {
       });
     }
     for (const provider of configuredProviders) {
-      if (!provider) continue;
-      const prev = map.get(provider);
+      if (!provider || map.has(provider)) continue;
+      // Provider is referenced in config but has no auth info from gateway —
+      // only mark local providers as connected; others need credentials.
       const providerIsLocal =
         provider === "ollama" || provider === "vllm" || provider === "lmstudio";
       map.set(provider, {
-        connected: true,
-        authKind: prev?.authKind || (providerIsLocal ? "local" : "configured"),
-        oauthStatus: prev?.oauthStatus || null,
+        connected: providerIsLocal,
+        authKind: providerIsLocal ? "local" : null,
+        oauthStatus: null,
       });
     }
     return map;
@@ -1111,7 +1144,7 @@ export function ModelsView() {
         { action: "add-allowed-model", model: key },
         `Added ${getModelDisplayName(key, allModels, aliases)} to allowed models`,
         "allowlist:add",
-        { refreshCatalog: true },
+        { restart: false, refreshCatalog: true },
       );
     },
     [aliases, allModels, configuredAllowed, runAction],
@@ -1125,7 +1158,7 @@ export function ModelsView() {
         { action: "remove-allowed-model", model: key },
         `Removed ${getModelDisplayName(key, allModels, aliases)} from allowed models`,
         "allowlist:remove",
-        { refreshCatalog: true },
+        { restart: false, refreshCatalog: true },
       );
     },
     [aliases, allModels, runAction],

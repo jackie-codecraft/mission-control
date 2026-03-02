@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { TypingDots } from "@/components/typing-dots";
 import { cn } from "@/lib/utils";
 import { addUnread, clearUnread, setChatActive } from "@/lib/chat-store";
 import {
@@ -448,6 +449,8 @@ function ChatPanel({
   availableModels,
   modelsLoaded,
   onKeySaved,
+  isPostOnboarding,
+  onClearPostOnboarding,
 }: {
   agentId: string;
   agentName: string;
@@ -458,6 +461,8 @@ function ChatPanel({
   availableModels: Array<{ key: string; name: string }>;
   modelsLoaded: boolean;
   onKeySaved: () => void;
+  isPostOnboarding: boolean;
+  onClearPostOnboarding: () => void;
 }) {
   const timeFormat = useSyncExternalStore(
     subscribeTimeFormatPreference,
@@ -605,6 +610,7 @@ function ChatPanel({
     const text = inputValue.trim();
     const hasFiles = attachedFiles.length > 0;
     if ((!text && !hasFiles) || isLoading || noApiKeys) return;
+    onClearPostOnboarding();
     setInputValue("");
     if (inputRef.current) inputRef.current.style.height = "auto";
     const fileParts = hasFiles ? await filesToUIParts(attachedFiles) : undefined;
@@ -613,7 +619,7 @@ function ChatPanel({
       { text: text || "", files: fileParts },
       { body: { model: modelOverride ?? undefined } }
     );
-  }, [inputValue, isLoading, noApiKeys, attachedFiles, modelOverride, sendMessage]);
+  }, [inputValue, isLoading, noApiKeys, attachedFiles, modelOverride, sendMessage, onClearPostOnboarding]);
 
   const clearChat = useCallback(() => {
     setMessages([]);
@@ -688,16 +694,25 @@ function ChatPanel({
               </div>
               {/* Quick prompts */}
               <div className="mt-4 flex flex-wrap justify-center gap-2">
-                {[
-                  "What did you do today?",
-                  "Check my scheduled tasks",
-                  "Summarize recent activity",
-                  "What tasks are pending?",
-                ].map((prompt) => (
+                {(isPostOnboarding
+                  ? [
+                      "Say hello!",
+                      "What can you do?",
+                      "Tell me a joke",
+                      "Help me get started",
+                    ]
+                  : [
+                      "What did you do today?",
+                      "Check my scheduled tasks",
+                      "Summarize recent activity",
+                      "What tasks are pending?",
+                    ]
+                ).map((prompt) => (
                   <button
                     key={prompt}
                     type="button"
                     onClick={() => {
+                      onClearPostOnboarding();
                       sendMessage({ text: prompt });
                     }}
                     className="rounded-lg border border-foreground/10 bg-muted/60 px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground/70"
@@ -1132,6 +1147,8 @@ function ChatPanel({
 
 /* ── Main chat view with agent selector ────────── */
 
+const isHosted = process.env.NEXT_PUBLIC_AGENTBAY_HOSTED === "true";
+
 export function ChatView({ isVisible = true }: { isVisible?: boolean }) {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<string>("main");
@@ -1141,6 +1158,22 @@ export function ChatView({ isVisible = true }: { isVisible?: boolean }) {
   const [agentDropdownOpen, setAgentDropdownOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // ── Warm-up state: friendly loading for new users ──
+  const [warmingUp, setWarmingUp] = useState(true);
+  const mountedAtRef = useRef(Date.now());
+
+  // ── Post-onboarding first-time prompts ──
+  const [isPostOnboarding, setIsPostOnboarding] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try { return localStorage.getItem("mc-post-onboarding") === "1"; } catch { return false; }
+  });
+
+  const clearPostOnboarding = useCallback(() => {
+    if (!isPostOnboarding) return;
+    setIsPostOnboarding(false);
+    try { localStorage.removeItem("mc-post-onboarding"); } catch {}
+  }, [isPostOnboarding]);
 
   // Track which agents have been "opened" (we'll mount their ChatPanel forever)
   const [mountedAgents, setMountedAgents] = useState<Set<string>>(
@@ -1171,17 +1204,32 @@ export function ChatView({ isVisible = true }: { isVisible?: boolean }) {
       .catch(() => setAgentsLoading(false));
   }, [selectedAgent]);
 
+  // End warm-up when agents appear
+  useEffect(() => {
+    if (agents.length > 0) setWarmingUp(false);
+  }, [agents]);
+
+  // End warm-up after 20s timeout
+  useEffect(() => {
+    const remaining = 20_000 - (Date.now() - mountedAtRef.current);
+    if (remaining <= 0) { setWarmingUp(false); return; }
+    const t = setTimeout(() => setWarmingUp(false), remaining);
+    return () => clearTimeout(t);
+  }, []);
+
+  // Fetch agents: fast-poll (2s) during warm-up, normal (30s) otherwise
   useEffect(() => {
     queueMicrotask(() => {
       if (isVisible) void fetchAgents();
     });
+    const ms = warmingUp ? 2000 : 30000;
     const interval = setInterval(() => {
       if (isVisible && document.visibilityState === "visible") {
         void fetchAgents();
       }
-    }, 30000);
+    }, ms);
     return () => clearInterval(interval);
-  }, [fetchAgents, isVisible]);
+  }, [fetchAgents, isVisible, warmingUp]);
 
   const fetchModels = useCallback(() => {
     fetch("/api/models?scope=configured", { cache: "no-store" })
@@ -1284,11 +1332,11 @@ export function ChatView({ isVisible = true }: { isVisible?: boolean }) {
                 <div className="absolute left-0 top-full z-50 mt-1 min-w-60 overflow-hidden rounded-lg border border-foreground/10 bg-card/95 py-1 shadow-xl backdrop-blur-sm">
                   {agentsLoading ? (
                     <div className="px-3 py-2 text-xs text-muted-foreground">
-                      Loading agents...
+                      {warmingUp ? "Starting up..." : "Loading agents..."}
                     </div>
                   ) : agents.length === 0 ? (
                     <div className="px-3 py-2 text-xs text-muted-foreground">
-                      No agents found
+                      No agents available
                     </div>
                   ) : (
                     agents.map((agent) => (
@@ -1360,23 +1408,101 @@ export function ChatView({ isVisible = true }: { isVisible?: boolean }) {
        * This ensures chat state (messages, streams) persist across tab switches
        * and agent switches.
        */}
-      {Array.from(mountedAgents).map((agentId) => {
-        const agent = agents.find((a) => a.id === agentId);
-        return (
-          <ChatPanel
-            key={agentId}
-            agentId={agentId}
-            agentName={agent ? agentDisplayName(agent) : agentId}
-            agentEmoji={agent?.emoji || "🤖"}
-            agentModel={agent?.model || "unknown"}
-            isSelected={agentId === selectedAgent}
-            isVisible={isVisible}
-            availableModels={availableModels}
-            modelsLoaded={modelsLoaded}
-            onKeySaved={fetchModels}
-          />
-        );
-      })}
+      {!agentsLoading && agents.length === 0 ? (
+        warmingUp ? (
+          /* ── Warm-up: agent is starting ── */
+          <div className="flex flex-1 flex-col items-center justify-center gap-4 px-4 text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted/80 text-xl">
+              🤖
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-foreground/90">
+                Getting your agent ready
+                <TypingDots size="sm" className="ml-1 text-muted-foreground" />
+              </h3>
+              <p className="mt-1.5 max-w-xs text-xs leading-relaxed text-muted-foreground">
+                This usually only takes a few seconds.
+              </p>
+            </div>
+          </div>
+        ) : isHosted ? (
+          /* ── Hosted post-warm-up: friendly fallback ── */
+          <div className="flex flex-1 flex-col items-center justify-center gap-4 px-4 text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted/80 text-xl">
+              🤖
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-foreground/90">
+                Your agent isn&apos;t available yet
+              </h3>
+              <p className="mt-1.5 max-w-xs text-xs leading-relaxed text-muted-foreground">
+                Try refreshing the page. If the problem persists, please contact support.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={fetchAgents}
+              className="flex items-center gap-1.5 rounded-lg border border-foreground/10 bg-muted/60 px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground/70"
+            >
+              <RefreshCw className="h-3 w-3" />
+              Refresh
+            </button>
+          </div>
+        ) : (
+          /* ── Self-hosted: existing guidance ── */
+          <div className="flex flex-1 flex-col items-center justify-center gap-4 px-4 text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted/80 text-xl">
+              🤖
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-foreground/90">
+                No agents found
+              </h3>
+              <p className="mt-1.5 max-w-xs text-xs leading-relaxed text-muted-foreground">
+                Your agent hasn&apos;t started yet. Check that the gateway is online
+                (green dot in the sidebar), then refresh this page.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={fetchAgents}
+                className="flex items-center gap-1.5 rounded-lg border border-foreground/10 bg-muted/60 px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground/70"
+              >
+                <RefreshCw className="h-3 w-3" />
+                Refresh
+              </button>
+              <a
+                href="/doctor"
+                className="flex items-center gap-1.5 rounded-lg border border-foreground/10 bg-muted/60 px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground/70"
+              >
+                <Cpu className="h-3 w-3" />
+                Run Doctor
+              </a>
+            </div>
+          </div>
+        )
+      ) : (
+        Array.from(mountedAgents).map((agentId) => {
+          const agent = agents.find((a) => a.id === agentId);
+          return (
+            <ChatPanel
+              key={agentId}
+              agentId={agentId}
+              agentName={agent ? agentDisplayName(agent) : agentId}
+              agentEmoji={agent?.emoji || "🤖"}
+              agentModel={agent?.model || "unknown"}
+              isSelected={agentId === selectedAgent}
+              isVisible={isVisible}
+              availableModels={availableModels}
+              modelsLoaded={modelsLoaded}
+              onKeySaved={fetchModels}
+              isPostOnboarding={isPostOnboarding}
+              onClearPostOnboarding={clearPostOnboarding}
+            />
+          );
+        })
+      )}
     </div>
   );
 }

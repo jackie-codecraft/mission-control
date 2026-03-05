@@ -439,9 +439,9 @@ export function ModelsView() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    const data = await res.json();
-    if (!res.ok || data.error) {
-      throw new Error(String(data.error || `Request failed with ${res.status}`));
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data || data.error) {
+      throw new Error(String(data?.error || `Request failed with ${res.status}`));
     }
     return data as Record<string, unknown>;
   }, []);
@@ -746,7 +746,7 @@ export function ModelsView() {
             : { action: "test-key", provider: connectProvider, token: connectKey.trim() },
         ),
       });
-      const testData = await testRes.json();
+      const testData = await testRes.json().catch(() => ({ ok: false, error: `Validation request failed (${testRes.status})` }));
       if (!testData.ok) {
         flash(testData.error || "API key validation failed — check the key and try again.", "error");
         return;
@@ -764,7 +764,7 @@ export function ModelsView() {
             baseUrl: connectBaseUrl.trim(),
           }),
         });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({ ok: false, error: "Server returned an invalid response" }));
         if (data.ok) {
           setConnectSuccess("custom");
           setConnectKey("");

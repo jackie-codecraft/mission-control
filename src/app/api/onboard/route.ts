@@ -259,9 +259,10 @@ export async function GET() {
     // Check gateway
     const gateway = await checkGatewayHealth(gatewayUrl);
 
-    // Check model + api key
+    // Check model + credentials + local providers
     let hasModel = false;
     let hasApiKey = false;
+    let hasLocalProvider = false;
 
     if (configExists) {
       try {
@@ -279,6 +280,18 @@ export async function GET() {
               return typeof value === "string" && value.trim().length > 0;
             });
           }
+
+          // Check for local/custom providers (Ollama, LM Studio, vLLM, etc.)
+          const providers = getDotPath(config, "models.providers");
+          if (providers && typeof providers === "object") {
+            const providerKeys = Object.keys(providers as Record<string, unknown>);
+            hasLocalProvider = providerKeys.some((k) => {
+              const p = (providers as Record<string, unknown>)[k];
+              if (!p || typeof p !== "object") return false;
+              const baseUrl = (p as Record<string, unknown>).baseUrl;
+              return typeof baseUrl === "string" && baseUrl.trim().length > 0;
+            });
+          }
         }
       } catch {
         // config unreadable
@@ -294,12 +307,25 @@ export async function GET() {
       }
     }
 
+    // Detect Ollama running locally (no API key needed)
+    let hasOllama = false;
+    try {
+      const ollamaRes = await fetch("http://127.0.0.1:11434/api/tags", {
+        signal: AbortSignal.timeout(2000),
+      });
+      hasOllama = ollamaRes.ok;
+    } catch {
+      // Ollama not running
+    }
+
     return NextResponse.json({
       installed,
-      configured: hasApiKey,
+      configured: hasApiKey || hasLocalProvider || hasOllama,
       configExists,
       hasModel,
       hasApiKey,
+      hasLocalProvider,
+      hasOllama,
       gatewayRunning: gateway.running,
       version: version || gateway.version || null,
       gatewayUrl,

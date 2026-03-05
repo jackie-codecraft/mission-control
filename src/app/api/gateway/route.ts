@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { gatewayCall, isReadOnlyMode } from "@/lib/openclaw";
+import { gatewayCall } from "@/lib/openclaw";
 import { getOpenClawBin, getGatewayUrl } from "@/lib/paths";
 import { logRequest, logError } from "@/lib/request-log";
 import { execFile } from "child_process";
@@ -10,18 +10,23 @@ const exec = promisify(execFile);
 // ── Auto-enable OpenResponses endpoint for streaming chat ──
 // Uses a cooldown to avoid restart loops: once attempted (success or fail),
 // waits RETRY_COOLDOWN_MS before trying again. Never resets on failure.
+// NOT gated by read-only mode — this is infrastructure setup. In read-only
+// mode the gatewayCall("config.patch") will throw ReadOnlyError and the
+// catch block handles it gracefully (streaming falls back to CLI).
 let _responsesEndpointEnsured = false;
 let _responsesLastAttempt = 0;
 const RESPONSES_RETRY_COOLDOWN_MS = 5 * 60_000; // 5 minutes
 
+/** Resolves when the setup attempt completes (success or fail). */
+let _responsesSetupPromise: Promise<void> | null = null;
+
 function ensureResponsesEndpoint(): void {
   if (_responsesEndpointEnsured) return;
-  if (isReadOnlyMode()) return;
   if (Date.now() - _responsesLastAttempt < RESPONSES_RETRY_COOLDOWN_MS) return;
   _responsesLastAttempt = Date.now();
 
   // Fire-and-forget — don't block the health check response
-  (async () => {
+  _responsesSetupPromise = (async () => {
     try {
       const cfg = await gatewayCall<{
         hash?: string;
@@ -57,9 +62,22 @@ function ensureResponsesEndpoint(): void {
       _responsesEndpointEnsured = true;
     } catch {
       // Non-fatal — streaming falls back to CLI.
+      // In read-only mode this catches ReadOnlyError silently.
       // Do NOT reset _responsesEndpointEnsured; cooldown timer handles retry.
+    } finally {
+      _responsesSetupPromise = null;
     }
   })();
+}
+
+/**
+ * Wait for the in-flight responses endpoint setup to finish.
+ * Called by the chat route to avoid racing with the fire-and-forget setup.
+ */
+export async function waitForResponsesEndpoint(): Promise<void> {
+  if (_responsesSetupPromise) {
+    await _responsesSetupPromise;
+  }
 }
 
 async function runGatewayServiceCommand(

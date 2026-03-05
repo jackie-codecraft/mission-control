@@ -1,6 +1,7 @@
 import { gatewayCall } from "@/lib/openclaw";
 import { runOpenResponsesText, guessMime } from "@/lib/openresponses";
 import { getGatewayUrl, getGatewayToken } from "@/lib/paths";
+import { waitForResponsesEndpoint } from "@/app/api/gateway/route";
 
 /**
  * Chat endpoint that sends a message to an OpenClaw agent and returns the response.
@@ -421,6 +422,10 @@ export async function POST(req: Request) {
       requestedModel,
     );
     if (sessionModelError) return sessionModelError;
+
+    // Wait for the responses endpoint setup if it's still in progress
+    // (ensureResponsesEndpoint fires async on the first gateway health check)
+    await waitForResponsesEndpoint();
 
     // Try streaming via OpenResponses API first
     const streamingRes = await tryStreamingResponse(

@@ -57,6 +57,24 @@ const PROVIDER_JOBS: Array<
     task: "collect-provider&provider=anthropic",
     credentials: ["ANTHROPIC_ADMIN_API_KEY", "ANTHROPIC_API_KEY"],
   },
+  {
+    name: "mc-billing-google",
+    everyMs: 30 * 60_000,
+    task: "collect-provider&provider=google",
+    credentials: ["GOOGLE_API_KEY", "GEMINI_API_KEY"],
+  },
+  {
+    name: "mc-billing-groq",
+    everyMs: 30 * 60_000,
+    task: "collect-provider&provider=groq",
+    credentials: ["GROQ_API_KEY"],
+  },
+  {
+    name: "mc-billing-mistral",
+    everyMs: 10 * 60_000,
+    task: "collect-provider&provider=mistral",
+    credentials: ["MISTRAL_API_KEY"],
+  },
 ];
 
 const ALL_MANAGED_JOB_NAMES = new Set<string>([

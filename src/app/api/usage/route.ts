@@ -220,13 +220,14 @@ export async function GET(request: NextRequest) {
       warnings: [],
     };
 
-    try {
-      await ensureUsageScheduler(request.nextUrl.origin);
-    } catch (err) {
+    // Fire-and-forget background work: scheduler, ingest, billing, and reconciliation.
+    // These used to run synchronously and could timeout/lock the entire GET request,
+    // causing 500 errors. Now they run concurrently and we catch errors gracefully.
+    const schedulerP = ensureUsageScheduler(request.nextUrl.origin).catch((err: unknown) => {
       diagnostics.sources.scheduler.ok = false;
       diagnostics.sources.scheduler.error = errorMessage(err);
       diagnostics.warnings.push("Mission Control could not refresh its system-managed usage jobs.");
-    }
+    });
 
     const agentIds: string[] = [];
     for (const c of configList) {
@@ -255,29 +256,30 @@ export async function GET(request: NextRequest) {
       diagnostics.warnings.push("Live gateway sessions are unavailable; live usage may be incomplete.");
     }
 
-    try {
-      await ingestGatewaySessionsToLedger(liveSessions);
-    } catch (err) {
+    // Run ingest, billing refresh, and reconciliation concurrently.
+    // These are write operations that should not block the read path.
+    const ingestP = ingestGatewaySessionsToLedger(liveSessions).catch((err: unknown) => {
       diagnostics.sources.usageLedgerWrite.ok = false;
       diagnostics.sources.usageLedgerWrite.error = errorMessage(err);
       diagnostics.warnings.push("Failed to persist usage deltas; historical windows may lag.");
-    }
-
-    try {
-      await ensureProviderBillingFreshness();
-    } catch (err) {
+    });
+    const billingP = ensureProviderBillingFreshness().catch((err: unknown) => {
       diagnostics.sources.providerBilling.ok = false;
       diagnostics.sources.providerBilling.error = errorMessage(err);
       diagnostics.warnings.push("Provider billing collectors did not refresh cleanly.");
-    }
-
-    try {
-      await runUsageReconciliation();
-    } catch (err) {
+    });
+    const reconcileP = runUsageReconciliation().catch((err: unknown) => {
       diagnostics.sources.reconciliation.ok = false;
       diagnostics.sources.reconciliation.error = errorMessage(err);
       diagnostics.warnings.push("Reconciliation did not complete; trust labels may be stale.");
-    }
+    });
+
+    // Wait for all background writes before reading data, but with a timeout
+    // so a slow write does not block the entire response.
+    await Promise.race([
+      Promise.allSettled([schedulerP, ingestP, billingP, reconcileP]),
+      new Promise((resolve) => setTimeout(resolve, 8000)),
+    ]);
 
     const dynamicPricing = await fetchOpenRouterPricing().catch(() => null);
     const missingPricingModels = new Map<string, MissingPricingModel>();
@@ -468,34 +470,45 @@ export async function GET(request: NextRequest) {
       agentModels.push({ agentId: id, primary, fallbacks });
     }
 
+    // Gather session file sizes concurrently per-agent with a cap to prevent slow I/O.
     const sessionFileSizes: { agentId: string; sizeBytes: number; fileCount: number }[] = [];
-    for (const agentId of agentIds) {
-      const sessDir = join(OPENCLAW_HOME, "agents", agentId, "sessions");
-      try {
+    const MAX_SESSION_AGENTS = 50;
+    const sessionAgentSlice = agentIds.slice(0, MAX_SESSION_AGENTS);
+    const sessionSizeResults = await Promise.allSettled(
+      sessionAgentSlice.map(async (agentId) => {
+        const sessDir = join(OPENCLAW_HOME, "agents", agentId, "sessions");
         const files = await readdir(sessDir);
         let totalSize = 0;
         let count = 0;
         for (const f of files) {
           if (f.endsWith(".jsonl") && !f.includes(".deleted")) {
-            const st = await stat(join(sessDir, f));
-            totalSize += st.size;
-            count += 1;
+            try {
+              const st = await stat(join(sessDir, f));
+              totalSize += st.size;
+              count += 1;
+            } catch {
+              // File may have been deleted between readdir and stat
+            }
           }
         }
-        sessionFileSizes.push({ agentId, sizeBytes: totalSize, fileCount: count });
-      } catch (err) {
-        if (getErrorCode(err) === "ENOENT") continue;
-        diagnostics.sources.sessionStorage.ok = false;
-        if (!diagnostics.sources.sessionStorage.error) {
-          diagnostics.sources.sessionStorage.error = errorMessage(err);
+        return { agentId, sizeBytes: totalSize, fileCount: count };
+      }),
+    );
+    for (const result of sessionSizeResults) {
+      if (result.status === "fulfilled") {
+        sessionFileSizes.push(result.value);
+      } else {
+        const errMsg = result.reason instanceof Error ? result.reason.message : String(result.reason);
+        if (!errMsg.includes("ENOENT")) {
+          diagnostics.sources.sessionStorage.ok = false;
+          if (!diagnostics.sources.sessionStorage.error) {
+            diagnostics.sources.sessionStorage.error = errMsg.slice(0, 280);
+          }
         }
-        diagnostics.sources.sessionStorage.failedAgents.push(agentId);
       }
     }
     if (!diagnostics.sources.sessionStorage.ok) {
-      diagnostics.warnings.push(
-        `Session storage metrics failed for ${diagnostics.sources.sessionStorage.failedAgents.length} agent(s).`,
-      );
+      diagnostics.warnings.push("Session storage metrics failed for some agent(s).");
     }
 
     let ledger: Awaited<ReturnType<typeof readLedgerUsageSnapshot>> = emptyLedgerSnapshot();
@@ -702,6 +715,20 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(response);
   } catch (err) {
     console.error("Usage API error:", err);
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    const message = err instanceof Error ? err.message : String(err);
+    const stack = err instanceof Error ? err.stack?.split("\n").slice(0, 4).join("\n") : undefined;
+    return NextResponse.json(
+      {
+        ok: false,
+        error: message.slice(0, 500),
+        hint: message.includes("sqlite3")
+          ? "SQLite is required for usage tracking. Install sqlite3 and restart."
+          : message.includes("ENOSPC")
+            ? "Disk is full. Free disk space and try again."
+            : "Reload the page. If the issue persists, check the gateway status.",
+        stack: process.env.NODE_ENV === "development" ? stack : undefined,
+      },
+      { status: 500 },
+    );
   }
 }

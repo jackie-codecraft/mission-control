@@ -8,7 +8,7 @@ import { useSmartPoll } from "@/hooks/use-smart-poll";
 
 type NotificationEvent = {
   id: string;
-  type: "cron" | "session" | "log" | "system" | "pairing";
+  type: "cron" | "session" | "log" | "system" | "pairing" | "usage-alert";
   timestamp: number;
   title: string;
   detail?: string;
@@ -59,6 +59,7 @@ const TYPE_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   log: Terminal,
   system: Radio,
   pairing: Bell,
+  "usage-alert": AlertTriangle,
 };
 
 const TYPE_ROUTE: Record<string, string> = {
@@ -67,6 +68,7 @@ const TYPE_ROUTE: Record<string, string> = {
   log: "/logs",
   system: "/activity",
   pairing: "/channels",
+  "usage-alert": "/usage",
 };
 
 const TYPE_QUERY_PARAM: Record<string, string> = {
@@ -102,15 +104,18 @@ export function NotificationCenter() {
 
   const fetchNotifications = useCallback(async () => {
     try {
-      const [activityRes, pairingRes] = await Promise.all([
-        open
-          ? fetch("/api/activity", { cache: "no-store", signal: AbortSignal.timeout(6000) })
-          : Promise.resolve(new Response("[]", { status: 200 })),
+      const [activityRes, pairingRes, alertsRes] = await Promise.all([
+        fetch("/api/activity", { cache: "no-store", signal: AbortSignal.timeout(6000) })
+          .catch(() => new Response("[]", { status: 200 })),
         fetch("/api/pairing", { cache: "no-store", signal: AbortSignal.timeout(6000) }),
+        fetch("/api/usage/alerts?poll=1", { cache: "no-store", signal: AbortSignal.timeout(6000) }).catch(() => null),
       ]);
 
       const activityData = activityRes.ok ? ((await activityRes.json()) as NotificationEvent[]) : [];
       const pairingData = pairingRes.ok ? ((await pairingRes.json()) as PairingResponse) : {};
+      const alertsData = alertsRes?.ok
+        ? ((await alertsRes.json()) as { alerts?: Array<{ id: string; message: string; firedAt?: number }> })
+        : {};
 
       // Only show actionable activity events (errors and warnings).
       const actionable = (Array.isArray(activityData) ? activityData : []).filter(
@@ -141,7 +146,30 @@ export function NotificationCenter() {
         }))),
       ];
 
-      const merged = [...pairingEvents, ...actionable]
+      // Usage alert firings → notification events + desktop notification
+      const alertEvents: NotificationEvent[] = (alertsData.alerts || []).map((alert) => {
+        // Fire a desktop notification for each new alert
+        if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+          try {
+            new Notification("Usage Alert", {
+              body: alert.message,
+              tag: `usage-alert:${alert.id}`,
+              icon: "/favicon.ico",
+            });
+          } catch { /* ignore */ }
+        }
+        return {
+          id: `usage-alert:${alert.id}`,
+          type: "usage-alert" as const,
+          timestamp: alert.firedAt || Date.now(),
+          title: "Usage alert triggered",
+          detail: alert.message,
+          status: "warning" as const,
+          source: alert.id,
+        };
+      });
+
+      const merged = [...alertEvents, ...pairingEvents, ...actionable]
         .sort((a, b) => b.timestamp - a.timestamp)
         .slice(0, 20);
 

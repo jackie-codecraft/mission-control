@@ -48,7 +48,7 @@ type ProviderStatusMeta = {
 };
 
 const OPENCLAW_HOME = getOpenClawHome();
-const SUPPORTED_PROVIDERS = ["openrouter", "openai", "anthropic"] as const;
+const SUPPORTED_PROVIDERS = ["openrouter", "openai", "anthropic", "google", "groq", "mistral"] as const;
 
 function parseDotEnv(content: string): Record<string, string> {
   const out: Record<string, string> = {};
@@ -222,17 +222,19 @@ export async function getProviderBillingRows(provider: string, limitDays = 31): 
   }));
 }
 
+const FRESHNESS_MAX_AGE_MS: Record<string, number> = {
+  openrouter: 30 * 60 * 1000,
+  openai: 15 * 60 * 1000,
+  anthropic: 10 * 60 * 1000,
+  google: 60 * 60 * 1000,
+  groq: 60 * 60 * 1000,
+  mistral: 15 * 60 * 1000,
+};
+
 function providerFreshness(provider: string, lastFetchMs: number | null): "fresh" | "stale" | "unknown" {
   if (!lastFetchMs) return "unknown";
   const ageMs = Date.now() - lastFetchMs;
-  const maxAge =
-    provider === "openrouter"
-      ? 30 * 60 * 1000
-      : provider === "openai"
-        ? 15 * 60 * 1000
-        : provider === "anthropic"
-          ? 10 * 60 * 1000
-          : 15 * 60 * 1000;
+  const maxAge = FRESHNESS_MAX_AGE_MS[provider] || 15 * 60 * 1000;
   return ageMs <= maxAge ? "fresh" : "stale";
 }
 
@@ -270,7 +272,7 @@ export async function getAllProviderSnapshots(): Promise<ProviderBillingProvider
 }
 
 export async function maybeCollectProvider(
-  provider: "openrouter" | "openai" | "anthropic",
+  provider: (typeof SUPPORTED_PROVIDERS)[number],
 ): Promise<CollectorResult> {
   if (provider === "openrouter") {
     const mod = await import("./openrouter");
@@ -279,6 +281,18 @@ export async function maybeCollectProvider(
   if (provider === "openai") {
     const mod = await import("./openai");
     return mod.collectOpenAIBilling();
+  }
+  if (provider === "google") {
+    const mod = await import("./google");
+    return mod.collectGoogleBilling();
+  }
+  if (provider === "groq") {
+    const mod = await import("./groq");
+    return mod.collectGroqBilling();
+  }
+  if (provider === "mistral") {
+    const mod = await import("./mistral");
+    return mod.collectMistralBilling();
   }
   const mod = await import("./anthropic");
   return mod.collectAnthropicBilling();

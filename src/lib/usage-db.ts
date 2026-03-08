@@ -28,8 +28,15 @@ export function sqliteValue(value: unknown): string {
 }
 
 async function sqlite(args: string[], timeout = 20000): Promise<string> {
-  const { stdout } = await exec("sqlite3", args, { timeout });
-  return stdout;
+  try {
+    const { stdout } = await exec("sqlite3", args, { timeout });
+    return stdout;
+  } catch (err) {
+    if (err && typeof err === "object" && "code" in err && (err as { code?: string }).code === "ENOENT") {
+      throw new Error("sqlite3 binary not found — install SQLite to enable usage tracking");
+    }
+    throw err;
+  }
 }
 
 export async function usageDbExec(sql: string): Promise<void> {
@@ -40,8 +47,14 @@ export async function usageDbExec(sql: string): Promise<void> {
 export async function usageDbQuery<T>(sql: string): Promise<T[]> {
   await ensureUsageDb();
   const stdout = await sqlite(["-json", DB_PATH, sql]);
-  const parsed = JSON.parse(stdout || "[]") as T[];
-  return Array.isArray(parsed) ? parsed : [];
+  const trimmed = (stdout || "").trim();
+  if (!trimmed) return [];
+  try {
+    const parsed = JSON.parse(trimmed) as T[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }
 
 export async function usageDbTransaction(statements: string[]): Promise<void> {

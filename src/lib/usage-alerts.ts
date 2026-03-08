@@ -82,6 +82,24 @@ const PROVIDER_CAPABILITIES: Record<string, UsageAlertProviderCapability> = {
     docsUrl: "https://synthetic.new/",
     note: "Requesty/Synthetic billing is currently treated as local telemetry estimate only in Mission Control.",
   },
+  google: {
+    provider: "google",
+    providerUsageApiKnown: false,
+    docsUrl: "https://ai.google.dev/pricing",
+    note: "Google AI Studio has no billing API — costs are estimated from local token telemetry.",
+  },
+  groq: {
+    provider: "groq",
+    providerUsageApiKnown: false,
+    docsUrl: "https://console.groq.com/docs/overview",
+    note: "Groq has no billing API — costs are estimated from local token telemetry.",
+  },
+  mistral: {
+    provider: "mistral",
+    providerUsageApiKnown: true,
+    docsUrl: "https://docs.mistral.ai/api/",
+    note: "Mistral usage data can be fetched via the /v1/usage endpoint with your API key.",
+  },
   minimax: {
     provider: "minimax",
     providerUsageApiKnown: false,

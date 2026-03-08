@@ -10,11 +10,13 @@ type RouteContext = {
 export async function GET(request: NextRequest, context: RouteContext) {
   try {
     const { provider } = await context.params;
-    if (provider !== "openrouter" && provider !== "openai" && provider !== "anthropic") {
+    const supportedProviders = ["openrouter", "openai", "anthropic", "google", "groq", "mistral"] as const;
+    type SupportedProvider = (typeof supportedProviders)[number];
+    if (!supportedProviders.includes(provider as SupportedProvider)) {
       return NextResponse.json({ ok: false, error: "Unsupported provider" }, { status: 404 });
     }
     if (request.nextUrl.searchParams.get("refresh") === "1") {
-      await maybeCollectProvider(provider);
+      await maybeCollectProvider(provider as SupportedProvider);
     }
     const snapshot = await getProviderSnapshot(provider);
     return NextResponse.json({ ok: true, provider, snapshot });

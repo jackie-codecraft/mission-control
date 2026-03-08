@@ -21,10 +21,12 @@ async function handleTask(task: string, request: NextRequest) {
   }
   if (task === "collect-provider") {
     const provider = String(request.nextUrl.searchParams.get("provider") || "").trim();
-    if (provider !== "openrouter" && provider !== "openai" && provider !== "anthropic") {
+    const supportedProviders = ["openrouter", "openai", "anthropic", "google", "groq", "mistral"] as const;
+    type SupportedProvider = (typeof supportedProviders)[number];
+    if (!supportedProviders.includes(provider as SupportedProvider)) {
       return NextResponse.json({ ok: false, error: "Unsupported provider" }, { status: 400 });
     }
-    const result = await maybeCollectProvider(provider);
+    const result = await maybeCollectProvider(provider as SupportedProvider);
     return NextResponse.json({ ok: true, task, result });
   }
   if (task === "reconcile") {

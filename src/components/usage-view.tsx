@@ -222,13 +222,20 @@ type UsageData = {
   };
 };
 
-type UsageAlarmTimeline = "last1h" | "last24h" | "last7d";
+type UsageAlarmTimeline = "last1h" | "last24h" | "last7d" | "todayUtc" | "monthUtc";
+type UsageAlarmKind = "token-usage" | "estimated-spend" | "provider-spend";
+type UsageAlarmScopeType = "global" | "model" | "provider";
 
 type UsageAlarmRule = {
   id: string;
+  kind: UsageAlarmKind;
+  scopeType: UsageAlarmScopeType;
+  scopeValue: string | null;
   fullModel: string;
   timeline: UsageAlarmTimeline;
+  thresholdValue: number;
   tokenLimit: number;
+  deliveryMode: string;
   enabled: boolean;
   createdAt: number;
   updatedAt: number;
@@ -236,13 +243,18 @@ type UsageAlarmRule = {
 
 type UsageAlarmEvaluation = {
   ruleId: string;
-  status: "ok" | "no-model-data" | "no-data-in-window";
+  kind: UsageAlarmKind;
+  scopeType: UsageAlarmScopeType;
+  scopeValue: string | null;
+  status: "ok" | "no-model-data" | "no-data-in-window" | "no-data";
   reason: string | null;
   provider: string;
   fullModel: string;
   timeline: UsageAlarmTimeline;
   tokenLimit: number;
+  thresholdValue: number;
   observedTokens: number;
+  observedValue: number;
   totalModelTokens: number;
   sampleSessions: number;
   staleSessions: number;
@@ -258,13 +270,22 @@ type UsageAlarmProviderCapability = {
   note: string;
 };
 
+type UsageAlarmFiring = {
+  id: string;
+  ruleId: string;
+  message: string;
+  firedAt: number;
+  observedValue: number;
+  deliveryStatus: "pending" | "sent" | "failed";
+};
+
 type UsageAlarmsPayload = {
   ok: boolean;
   monitorEnabled: boolean;
   rules: UsageAlarmRule[];
   evaluations: UsageAlarmEvaluation[];
   alerts?: Array<{ id: string; message: string }>;
-  recentFirings?: Array<{ id: string; message: string; firedAt?: number }>;
+  recentFirings?: UsageAlarmFiring[];
   lastEvaluatedMs?: number | null;
   providerCapabilities: Record<string, UsageAlarmProviderCapability>;
   warning?: string;
@@ -351,6 +372,20 @@ const USAGE_ALARM_TIMELINE_LABELS: Record<UsageAlarmTimeline, string> = {
   last1h: "Last 1 hour",
   last24h: "Last 24 hours",
   last7d: "Last 7 days",
+  todayUtc: "Today (UTC)",
+  monthUtc: "This month (UTC)",
+};
+
+const USAGE_ALARM_KIND_LABELS: Record<UsageAlarmKind, string> = {
+  "token-usage": "Token usage",
+  "estimated-spend": "Estimated spend ($)",
+  "provider-spend": "Provider-reported spend ($)",
+};
+
+const USAGE_ALARM_SCOPE_LABELS: Record<UsageAlarmScopeType, string> = {
+  global: "All usage",
+  model: "Specific model",
+  provider: "Specific provider",
 };
 
 const SUPPORT_EMAIL = "roberto.sannazzaro@gmail.com";
@@ -611,9 +646,12 @@ export function UsageView() {
   const [alarms, setAlarms] = useState<UsageAlarmsPayload | null>(null);
   const [alarmError, setAlarmError] = useState<string | null>(null);
   const [alarmBusy, setAlarmBusy] = useState(false);
+  const [newAlarmKind, setNewAlarmKind] = useState<UsageAlarmKind>("estimated-spend");
+  const [newAlarmScope, setNewAlarmScope] = useState<UsageAlarmScopeType>("global");
   const [newAlarmModel, setNewAlarmModel] = useState("");
   const [newAlarmTimeline, setNewAlarmTimeline] = useState<UsageAlarmTimeline>("last24h");
-  const [newAlarmLimit, setNewAlarmLimit] = useState("100000");
+  const [newAlarmLimit, setNewAlarmLimit] = useState("5");
+  const [showFiringsHistory, setShowFiringsHistory] = useState(false);
   const [orBilling, setOrBilling] = useState<OpenRouterBillingResult | null>(null);
   const [orLoading, setOrLoading] = useState(true);
   const [retryBusy, setRetryBusy] = useState(false);
@@ -646,7 +684,11 @@ export function UsageView() {
   const fetchData = useCallback(async () => {
     try {
       const res = await fetch("/api/usage", { cache: "no-store" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        const body = await res.json().catch(() => null) as { error?: string; hint?: string } | null;
+        const detail = body?.hint || body?.error || "";
+        throw new Error(`HTTP ${res.status}${detail ? `: ${detail}` : ""}`);
+      }
       const json = (await res.json()) as UsageData;
       setData(json);
       setError(null);
@@ -711,22 +753,25 @@ export function UsageView() {
   );
 
   const createAlarm = useCallback(async () => {
-    const tokenLimit = Number(newAlarmLimit);
-    if (!newAlarmModel) {
-      setAlarmError("Select a model before creating an alarm.");
+    const thresholdValue = Number(newAlarmLimit);
+    if (!Number.isFinite(thresholdValue) || thresholdValue <= 0) {
+      setAlarmError("Threshold must be a positive number.");
       return;
     }
-    if (!Number.isFinite(tokenLimit) || tokenLimit <= 0) {
-      setAlarmError("Token limit must be a positive number.");
+    if (newAlarmScope !== "global" && !newAlarmModel) {
+      setAlarmError("Select a model or provider for this scope.");
       return;
     }
     await mutateAlarms({
       action: "create",
-      fullModel: newAlarmModel,
+      kind: newAlarmKind,
+      scopeType: newAlarmScope,
+      scopeValue: newAlarmScope === "global" ? null : newAlarmModel,
       timeline: newAlarmTimeline,
-      tokenLimit: Math.floor(tokenLimit),
+      thresholdValue: newAlarmKind === "token-usage" ? Math.floor(thresholdValue) : thresholdValue,
+      deliveryMode: "notification",
     });
-  }, [mutateAlarms, newAlarmLimit, newAlarmModel, newAlarmTimeline]);
+  }, [mutateAlarms, newAlarmLimit, newAlarmModel, newAlarmTimeline, newAlarmKind, newAlarmScope]);
 
   useEffect(() => {
     void fetchData();
@@ -1141,116 +1186,146 @@ export function UsageView() {
         </Panel>
 
         <Panel
-          title="Usage Alerts"
-          subtitle="Server-evaluated alerts. Browser notifications only render pending firings."
+          title="Usage Alerts & Budget Alarms"
+          subtitle="Set spending or token thresholds. Alerts fire server-side and deliver via desktop notification and chat."
           actions={(
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={() => void fetchAlarmsStatus()}
-              className="text-xs font-medium"
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
-              Refresh alarms
-            </Button>
-          )}
-        >
-          <div className="grid gap-2 lg:grid-cols-[2fr_1fr_1fr_auto]">
-            <select
-              value={newAlarmModel}
-              onChange={(e) => setNewAlarmModel(e.target.value)}
-              className="rounded-lg border border-border bg-card px-3 py-2 text-xs text-foreground/90 focus:outline-none focus:ring-2 focus:ring-ring"
-            >
-              {modelOptions.length === 0 && <option value="">No models available yet</option>}
-              {modelOptions.map((model) => (
-                <option key={model} value={model}>
-                  {shortModel(model)} ({modelProvider(model)})
-                </option>
-              ))}
-            </select>
-            <select
-              value={newAlarmTimeline}
-              onChange={(e) => setNewAlarmTimeline(e.target.value as UsageAlarmTimeline)}
-              className="rounded-lg border border-border bg-card px-3 py-2 text-xs text-foreground/90 focus:outline-none focus:ring-2 focus:ring-ring"
-            >
-              {(Object.keys(USAGE_ALARM_TIMELINE_LABELS) as UsageAlarmTimeline[]).map((timeline) => (
-                <option key={timeline} value={timeline}>
-                  {USAGE_ALARM_TIMELINE_LABELS[timeline]}
-                </option>
-              ))}
-            </select>
-            <input
-              type="number"
-              min={1}
-              step={1000}
-              value={newAlarmLimit}
-              onChange={(e) => setNewAlarmLimit(e.target.value)}
-              placeholder="Token limit"
-              className="rounded-lg border border-border bg-card px-3 py-2 text-xs text-foreground/90 placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-ring"
-            />
-            <Button
-              type="button"
-              size="sm"
-              disabled={alarmBusy || modelOptions.length === 0}
-              onClick={() => void createAlarm()}
-            >
-              Add alarm
-            </Button>
-          </div>
-
-          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-foreground/10 bg-card/40 px-3 py-2 text-xs">
-            <p className="text-foreground/80">
-              Runtime:{" "}
-              <span className={cn(
-                "font-medium",
-                alarms?.monitorEnabled === false ? "text-red-700 dark:text-red-300" : "text-emerald-700 dark:text-emerald-300",
-              )}
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => void mutateAlarms({ action: "check" })}
+                disabled={alarmBusy}
+                className="text-xs font-medium"
               >
-                {alarms?.monitorEnabled === false ? "paused" : "active"}
-              </span>
-            </p>
-            <Button
-              type="button"
-              size="sm"
-              variant={alarms?.monitorEnabled === false ? "default" : "outline"}
-              disabled={alarmBusy}
-              onClick={() => void mutateAlarms({
-                action: "set-monitor",
-                monitorEnabled: alarms?.monitorEnabled === false,
-              })}
-              className="text-xs"
-            >
-              {alarms?.monitorEnabled === false ? "Enable evaluator" : "Pause evaluator"}
-            </Button>
-          </div>
-          <p className="mt-1 text-[11px] text-muted-foreground/65">
-            Desktop notifications only render already-fired alerts. Server evaluation is independent of tab visibility.
-          </p>
-          {alarms?.lastEvaluatedMs ? (
-            <p className="mt-1 text-[11px] text-muted-foreground/65">
-              Last server evaluation {fmtAgo(alarms.lastEvaluatedMs)}.
-            </p>
-          ) : null}
-
-          {selectedProviderCapability && (
-            <div className="mt-2 rounded-lg border border-foreground/10 bg-background/50 px-3 py-2 text-xs text-muted-foreground/80">
-              <p>
-                Provider context ({selectedProvider}): {selectedProviderCapability.note} Quick-add rules from this panel
-                create token-usage alerts evaluated from the local telemetry ledger.
-              </p>
-              {selectedProviderCapability.docsUrl && (
-                <a
-                  href={selectedProviderCapability.docsUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-1 inline-block text-xs font-medium text-emerald-700 hover:underline dark:text-emerald-300"
-                >
-                  Provider docs
-                </a>
-              )}
+                <RefreshCw className={cn("h-3.5 w-3.5", alarmBusy && "animate-spin")} />
+                Evaluate now
+              </Button>
             </div>
           )}
+        >
+          {/* Create new alert */}
+          <div className="rounded-lg border border-foreground/10 bg-background/50 p-3">
+            <p className="mb-2 text-[10px] font-medium uppercase tracking-widest text-muted-foreground/60">New Alert</p>
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+              <select
+                value={newAlarmKind}
+                onChange={(e) => setNewAlarmKind(e.target.value as UsageAlarmKind)}
+                className="rounded-lg border border-border bg-card px-3 py-2 text-xs text-foreground/90 focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                {(Object.keys(USAGE_ALARM_KIND_LABELS) as UsageAlarmKind[]).map((kind) => (
+                  <option key={kind} value={kind}>
+                    {USAGE_ALARM_KIND_LABELS[kind]}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={newAlarmScope}
+                onChange={(e) => setNewAlarmScope(e.target.value as UsageAlarmScopeType)}
+                className="rounded-lg border border-border bg-card px-3 py-2 text-xs text-foreground/90 focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                {(Object.keys(USAGE_ALARM_SCOPE_LABELS) as UsageAlarmScopeType[]).map((scope) => (
+                  <option key={scope} value={scope}>
+                    {USAGE_ALARM_SCOPE_LABELS[scope]}
+                  </option>
+                ))}
+              </select>
+              {newAlarmScope !== "global" && (
+                <select
+                  value={newAlarmModel}
+                  onChange={(e) => setNewAlarmModel(e.target.value)}
+                  className="rounded-lg border border-border bg-card px-3 py-2 text-xs text-foreground/90 focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  {modelOptions.length === 0 && <option value="">No models available yet</option>}
+                  {newAlarmScope === "provider"
+                    ? [...new Set(modelOptions.map((m) => modelProvider(m)))].sort().map((p) => (
+                        <option key={p} value={p}>{p}</option>
+                      ))
+                    : modelOptions.map((model) => (
+                        <option key={model} value={model}>
+                          {shortModel(model)} ({modelProvider(model)})
+                        </option>
+                      ))}
+                </select>
+              )}
+              <select
+                value={newAlarmTimeline}
+                onChange={(e) => setNewAlarmTimeline(e.target.value as UsageAlarmTimeline)}
+                className="rounded-lg border border-border bg-card px-3 py-2 text-xs text-foreground/90 focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                {(Object.keys(USAGE_ALARM_TIMELINE_LABELS) as UsageAlarmTimeline[]).map((timeline) => (
+                  <option key={timeline} value={timeline}>
+                    {USAGE_ALARM_TIMELINE_LABELS[timeline]}
+                  </option>
+                ))}
+              </select>
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  min={newAlarmKind === "token-usage" ? 1 : 0.01}
+                  step={newAlarmKind === "token-usage" ? 1000 : 0.5}
+                  value={newAlarmLimit}
+                  onChange={(e) => setNewAlarmLimit(e.target.value)}
+                  placeholder={newAlarmKind === "token-usage" ? "Token limit" : "USD threshold"}
+                  className="w-full min-w-0 rounded-lg border border-border bg-card px-3 py-2 text-xs text-foreground/90 placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={alarmBusy}
+                  onClick={() => void createAlarm()}
+                  className="shrink-0"
+                >
+                  Add
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* Runtime status */}
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-foreground/10 bg-card/40 px-3 py-2 text-xs">
+            <div className="flex items-center gap-3">
+              <p className="text-foreground/80">
+                Evaluator:{" "}
+                <span className={cn(
+                  "font-medium",
+                  alarms?.monitorEnabled === false ? "text-red-700 dark:text-red-300" : "text-emerald-700 dark:text-emerald-300",
+                )}>
+                  {alarms?.monitorEnabled === false ? "paused" : "active"}
+                </span>
+              </p>
+              {alarms?.lastEvaluatedMs ? (
+                <span className="text-muted-foreground/60">
+                  Last run {fmtAgo(alarms.lastEvaluatedMs)}
+                </span>
+              ) : null}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                disabled={alarmBusy}
+                onClick={() => setShowFiringsHistory(!showFiringsHistory)}
+                className="h-7 px-2.5 text-[11px]"
+              >
+                {showFiringsHistory ? "Hide history" : "Show history"}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={alarms?.monitorEnabled === false ? "default" : "outline"}
+                disabled={alarmBusy}
+                onClick={() => void mutateAlarms({
+                  action: "set-monitor",
+                  monitorEnabled: alarms?.monitorEnabled === false,
+                })}
+                className="h-7 px-2.5 text-[11px]"
+              >
+                {alarms?.monitorEnabled === false ? "Enable" : "Pause"}
+              </Button>
+            </div>
+          </div>
 
           {(alarmError || alarms?.warning) && (
             <div className="mt-2 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
@@ -1258,47 +1333,56 @@ export function UsageView() {
             </div>
           )}
 
+          {/* Active rules */}
           <div className="mt-3 space-y-2">
             {(alarms?.rules || []).length === 0 ? (
               <p className="rounded-lg border border-foreground/10 bg-card/40 px-3 py-2 text-xs text-muted-foreground/75">
-                No usage alerts configured yet.
+                No usage alerts configured yet. Create one above to get notified when spending exceeds your budget.
               </p>
             ) : (
               (alarms?.rules || []).map((rule) => {
                 const evalRow = alarmEvaluationsById.get(rule.id);
-                const status = evalRow?.status || "no-model-data";
                 const exceeded = Boolean(evalRow?.exceeded);
-                const statusLabel = status === "ok"
-                  ? exceeded
-                    ? "limit exceeded"
-                    : "within limit"
-                  : status === "no-data-in-window"
-                    ? "no data in window"
-                    : "no model data";
-                const statusTone = status === "ok"
-                  ? exceeded
-                    ? "text-red-700 dark:text-red-300"
-                    : "text-emerald-700 dark:text-emerald-300"
+                const kind = rule.kind || "token-usage";
+                const scopeType = rule.scopeType || "model";
+                const scopeValue = rule.scopeValue || rule.fullModel;
+                const threshold = rule.thresholdValue || rule.tokenLimit;
+                const observed = evalRow?.observedValue ?? evalRow?.observedTokens ?? 0;
+                const statusOk = evalRow?.status === "ok";
+                const statusLabel = statusOk
+                  ? exceeded ? "EXCEEDED" : "OK"
+                  : evalRow?.status === "no-data" || evalRow?.status === "no-data-in-window"
+                    ? "no data"
+                    : "pending";
+                const statusTone = statusOk
+                  ? exceeded ? "text-red-700 dark:text-red-300" : "text-emerald-700 dark:text-emerald-300"
                   : "text-amber-700 dark:text-amber-300";
+                const isSpend = kind !== "token-usage";
+                const fmtThreshold = isSpend ? fmtCost(threshold) : fmtTokensLong(Math.round(threshold));
+                const fmtObserved = isSpend ? fmtCost(observed) : fmtTokensLong(Math.round(observed));
+                const pct = threshold > 0 ? Math.min(100, Math.round((observed / threshold) * 100)) : 0;
                 return (
-                  <div key={rule.id} className="rounded-lg border border-foreground/10 bg-card/40 px-3 py-2.5">
+                  <div key={rule.id} className={cn(
+                    "rounded-lg border px-3 py-2.5",
+                    exceeded ? "border-red-500/30 bg-red-500/5" : "border-foreground/10 bg-card/40",
+                  )}>
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="truncate text-xs font-semibold text-foreground/90">
-                          {shortModel(rule.fullModel)}
-                          <span className="ml-1.5 text-[11px] text-muted-foreground/65">
-                            ({USAGE_ALARM_TIMELINE_LABELS[rule.timeline]})
-                          </span>
+                        <p className="text-xs font-semibold text-foreground/90">
+                          {USAGE_ALARM_KIND_LABELS[kind]}
+                          {scopeType !== "global" && scopeValue && (
+                            <span className="ml-1.5 font-normal text-muted-foreground/70">
+                              {scopeType === "model" ? shortModel(scopeValue) : scopeValue}
+                            </span>
+                          )}
+                          {scopeType === "global" && (
+                            <span className="ml-1.5 font-normal text-muted-foreground/70">all usage</span>
+                          )}
                         </p>
                         <p className="text-xs text-muted-foreground/70">
-                          Limit {fmtTokensLong(rule.tokenLimit)} tokens
-                          {evalRow
-                            ? ` · observed ${fmtTokensLong(evalRow.observedTokens)}`
-                            : ""}
+                          {USAGE_ALARM_TIMELINE_LABELS[rule.timeline]} · threshold {fmtThreshold}
+                          {statusOk ? ` · current ${fmtObserved}` : ""}
                         </p>
-                        {evalRow?.reason && (
-                          <p className="mt-0.5 text-[11px] text-muted-foreground/65">{evalRow.reason}</p>
-                        )}
                       </div>
                       <div className="flex items-center gap-2">
                         <span className={cn("text-xs font-medium", statusTone)}>{statusLabel}</span>
@@ -1328,11 +1412,55 @@ export function UsageView() {
                         </Button>
                       </div>
                     </div>
+                    {statusOk && threshold > 0 && (
+                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-foreground/[0.04]">
+                        <div
+                          className="h-full rounded-full transition-all duration-500"
+                          style={{
+                            width: `${Math.max(2, pct)}%`,
+                            background: exceeded
+                              ? "linear-gradient(90deg, hsl(0 80% 55%), hsl(0 80% 45%))"
+                              : pct > 80
+                                ? "linear-gradient(90deg, hsl(40 90% 55%), hsl(30 90% 50%))"
+                                : "linear-gradient(90deg, var(--chart-2), var(--chart-1))",
+                          }}
+                        />
+                      </div>
+                    )}
                   </div>
                 );
               })
             )}
           </div>
+
+          {/* Recent firings history */}
+          {showFiringsHistory && (alarms?.recentFirings || []).length > 0 && (
+            <div className="mt-3">
+              <p className="mb-2 text-[10px] font-medium uppercase tracking-widest text-muted-foreground/60">
+                Recent Alert Firings
+              </p>
+              <div className="space-y-1.5">
+                {(alarms?.recentFirings || []).slice(0, 10).map((firing) => (
+                  <div key={firing.id || `${firing.ruleId}:${firing.firedAt}`} className="rounded-lg border border-foreground/10 bg-card/40 px-3 py-2 text-xs">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-foreground/80">{firing.message}</p>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <span className={cn(
+                          "text-[11px] font-medium",
+                          firing.deliveryStatus === "sent" ? "text-emerald-700 dark:text-emerald-300"
+                            : firing.deliveryStatus === "failed" ? "text-red-700 dark:text-red-300"
+                              : "text-amber-700 dark:text-amber-300",
+                        )}>
+                          {firing.deliveryStatus}
+                        </span>
+                        <span className="text-muted-foreground/60">{fmtAgo(firing.firedAt)}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </Panel>
 
         {/* Metric tiles */}

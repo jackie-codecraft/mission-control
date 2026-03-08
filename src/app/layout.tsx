@@ -117,7 +117,7 @@ export default function RootLayout({
             <AgentChatPanel />
             <ChatNotificationToast />
             {!isHosted && <OpenClawUpdateBanner />}
-            {!isHosted && <UsageAlertMonitor />}
+            <UsageAlertMonitor />
           </SetupGate>
         </ThemeProvider>
       </body>

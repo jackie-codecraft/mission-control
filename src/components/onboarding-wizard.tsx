@@ -657,7 +657,7 @@ export function OnboardingWizard({ onComplete }: { onComplete?: () => void }) {
 
       if (abort.signal.aborted) return;
 
-      // Phase 2: Save config
+      // Phase 2: Save config via CLI (writes to disk, no gateway restart dance)
       setConnectPhase("saving");
       const res = await fetch("/api/channels", {
         method: "POST",
@@ -676,14 +676,6 @@ export function OnboardingWizard({ onComplete }: { onComplete?: () => void }) {
       }
 
       if (abort.signal.aborted) return;
-
-      // Phase 3: Wait for gateway restart and channel readiness
-      setConnectPhase("restarting");
-      const healthy = await waitForGatewayHealth(currentChannel.id);
-      if (abort.signal.aborted) return;
-      if (!healthy) {
-        throw new Error("Connection is taking a while — please try again. If it keeps failing, check that your token is correct.");
-      }
 
       setConnectPhase("ready");
       setChannelResult({
@@ -709,7 +701,7 @@ export function OnboardingWizard({ onComplete }: { onComplete?: () => void }) {
       if (!abort.signal.aborted) setChannelBusy(false);
       connectAbortRef.current = null;
     }
-  }, [channelAppToken, channelToken, currentChannel, waitForGatewayHealth]);
+  }, [channelAppToken, channelToken, currentChannel]);
 
   const handleApprovePairing = useCallback(async (request: PairingRequest) => {
     // Idempotency guard: skip if already approved or in-flight

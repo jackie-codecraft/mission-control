@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readFile } from "fs/promises";
 import { join } from "path";
-import { gatewayCall } from "@/lib/openclaw";
+import { gatewayCall, runCli } from "@/lib/openclaw";
 import { patchConfig } from "@/lib/gateway-config";
 import { getOpenClawHome } from "@/lib/paths";
 
@@ -182,25 +182,32 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ ok: true, message: "WhatsApp enabled. Use QR login to link your phone." });
         }
 
-        // Telegram / Discord: save token via config patch.
-        // groupPolicy defaults to "mention" so the bot responds when mentioned
-        // in groups. Without this, the gateway defaults to "allowlist" with an
-        // empty allowFrom list, silently dropping all group messages.
-        const patch: Record<string, unknown> = {
-          enabled: true,
-          dmPolicy: (body.dmPolicy as string) || "pairing",
-          groupPolicy: (body.groupPolicy as string) || "mention",
-        };
-        if (channel === "telegram") patch.botToken = token;
-        else if (channel === "discord") patch.token = token;
-        else patch.botToken = token;
-
-        await patchConfig(
-          { channels: { [channel]: patch } },
-          { restartDelayMs: 2000 },
+        // Use the CLI `channels add` — it writes config to disk directly
+        // without needing the gateway RPC. This avoids the
+        // config.patch → gateway-self-restart → poll-until-alive dance
+        // that caused timeout errors during onboarding.
+        await runCli(
+          ["channels", "add", "--channel", channel, "--token", token],
+          15000,
         );
 
-        return NextResponse.json({ ok: true, message: `${channel} connected. Gateway is restarting.` });
+        // The CLI defaults groupPolicy to "allowlist" with an empty
+        // allowFrom list which silently drops all group messages.
+        // Patch the policies to sensible defaults for onboarding.
+        try {
+          await patchConfig({
+            channels: {
+              [channel]: {
+                dmPolicy: (body.dmPolicy as string) || "pairing",
+                groupPolicy: (body.groupPolicy as string) || "mention",
+              },
+            },
+          });
+        } catch {
+          // non-fatal — policies can be adjusted later from the dashboard
+        }
+
+        return NextResponse.json({ ok: true, message: `${channel} connected.` });
       }
 
       /* ── Disconnect (remove channel) ── */

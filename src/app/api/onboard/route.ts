@@ -351,63 +351,74 @@ export async function POST(request: NextRequest) {
           patch.channels = channels;
         }
 
-        // ── Step 3a: Apply via gateway RPC (preferred — atomic + live reload) ──
+        // ── Step 3: ALWAYS write to disk first (guaranteed to work) ──
         let patchMethod = "";
+        try {
+          let config: Record<string, unknown> = {};
+          try { config = JSON.parse(await readFile(configPath, "utf-8")); } catch { /* fresh */ }
+
+          const env = (config.env || {}) as Record<string, unknown>;
+          env[envKey] = apiKeyValue;
+          config.env = env;
+
+          const auth = (config.auth || {}) as Record<string, unknown>;
+          const profiles = (auth.profiles || {}) as Record<string, unknown>;
+          profiles[`${provider}:default`] = { provider, mode: "api_key" };
+          auth.profiles = profiles;
+          config.auth = auth;
+
+          const agents = (config.agents || {}) as Record<string, unknown>;
+          const defaults = (agents.defaults || {}) as Record<string, unknown>;
+          defaults.model = { primary: model };
+          agents.defaults = defaults;
+          config.agents = agents;
+
+          if (telegramToken) {
+            const channels = (config.channels || {}) as Record<string, unknown>;
+            channels.telegram = { enabled: true, botToken: telegramToken, dmPolicy: "pairing" };
+            config.channels = channels;
+          }
+          if (discordToken) {
+            const channels = (config.channels || {}) as Record<string, unknown>;
+            channels.discord = { enabled: true, token: discordToken, dmPolicy: "pairing" };
+            config.channels = channels;
+          }
+
+          await mkdir(dirname(configPath), { recursive: true });
+          await writeFile(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+          patchMethod = "disk";
+        } catch (err) {
+          return NextResponse.json(
+            { ok: false, error: `Config save failed: ${err instanceof Error ? err.message : err}` },
+            { status: 500 },
+          );
+        }
+
+        // ── Step 4: Notify gateway of config change (best-effort) ──
+        // Gateway has hybrid reload — it watches the config file. But we also try
+        // RPC to trigger an immediate reload, especially for channels that need a restart.
         if (gatewayReady) {
           try {
             await patchConfig(patch, { restartDelayMs: hasChannels ? 2000 : 0 });
             patchMethod = "gateway";
-          } catch (err) {
-            console.error("patchConfig RPC failed, will try disk fallback:", err);
+          } catch {
+            // Gateway RPC failed — that's fine, config is on disk.
+            // Gateway's file watcher will pick it up, or we restart below.
           }
         }
 
-        // ── Step 3b: Disk-write fallback (if gateway unavailable or RPC failed) ──
-        if (!patchMethod) {
-          try {
-            let config: Record<string, unknown> = {};
-            try { config = JSON.parse(await readFile(configPath, "utf-8")); } catch { /* fresh */ }
-
-            const env = (config.env || {}) as Record<string, unknown>;
-            env[envKey] = apiKeyValue;
-            config.env = env;
-
-            const auth = (config.auth || {}) as Record<string, unknown>;
-            const profiles = (auth.profiles || {}) as Record<string, unknown>;
-            profiles[`${provider}:default`] = { provider, mode: "api_key" };
-            auth.profiles = profiles;
-            config.auth = auth;
-
-            const agents = (config.agents || {}) as Record<string, unknown>;
-            const defaults = (agents.defaults || {}) as Record<string, unknown>;
-            defaults.model = { primary: model };
-            agents.defaults = defaults;
-            config.agents = agents;
-
-            if (telegramToken) {
-              const channels = (config.channels || {}) as Record<string, unknown>;
-              channels.telegram = { enabled: true, botToken: telegramToken, dmPolicy: "pairing" };
-              config.channels = channels;
+        // ── Step 5: If channels configured, restart gateway and wait for channel ──
+        if (hasChannels) {
+          // If RPC patch didn't work, restart gateway via CLI so it picks up channels
+          if (patchMethod !== "gateway") {
+            try {
+              await runCliCaptureBoth(["gateway", "restart"], 25000);
+            } catch {
+              // restart may fail if gateway isn't managed by daemon — that's ok
             }
-            if (discordToken) {
-              const channels = (config.channels || {}) as Record<string, unknown>;
-              channels.discord = { enabled: true, token: discordToken, dmPolicy: "pairing" };
-              config.channels = channels;
-            }
-
-            await mkdir(dirname(configPath), { recursive: true });
-            await writeFile(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
-            patchMethod = "disk";
-          } catch (err) {
-            return NextResponse.json(
-              { ok: false, error: `Config save failed: ${err instanceof Error ? err.message : err}` },
-              { status: 500 },
-            );
           }
-        }
 
-        // ── Step 4: If channels configured, poll until channel is running ──
-        if (hasChannels && gatewayReady) {
+          // Poll until target channel is running (up to 18s)
           const targetChannel = telegramToken ? "telegram" : "discord";
           for (let i = 0; i < 12; i++) {
             await new Promise((r) => setTimeout(r, 1500));
@@ -420,27 +431,8 @@ export async function POST(request: NextRequest) {
                 if (ch && typeof ch === "object" && (ch as Record<string, unknown>).running === true) break;
               }
             } catch {
-              // gateway may still be restarting after config.patch
+              // gateway may still be restarting
             }
-          }
-        }
-
-        // ── Step 5: Verify config was applied ──
-        if (gatewayReady && patchMethod === "gateway") {
-          try {
-            const cfg = await gatewayCall<Record<string, unknown>>("config.get", undefined, 8000);
-            const resolved = cfg && typeof cfg === "object" && typeof (cfg as Record<string, unknown>).resolved === "object"
-              ? (cfg as Record<string, unknown>).resolved as Record<string, unknown>
-              : null;
-            if (resolved) {
-              const savedEnv = resolved.env as Record<string, unknown> | undefined;
-              const savedKey = savedEnv?.[envKey];
-              if (!savedKey || typeof savedKey !== "string" || !savedKey.trim()) {
-                console.warn("Config verification: API key not found in resolved config after patchConfig");
-              }
-            }
-          } catch {
-            // non-fatal — config was already patched
           }
         }
 

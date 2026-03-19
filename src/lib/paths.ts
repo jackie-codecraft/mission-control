@@ -31,10 +31,14 @@ let _home: string | null = null;
 
 export function getOpenClawHome(): string {
   if (_home) return _home;
-  _home =
-    process.env.OPENCLAW_HOME ||
-    process.env.OPENCLAW_STATE_DIR ||
-    join(homedir(), ".openclaw");
+  const explicit = process.env.OPENCLAW_HOME || process.env.OPENCLAW_STATE_DIR;
+  if (explicit) {
+    // OPENCLAW_HOME points to the user's home (e.g. /root). The actual state
+    // directory is $OPENCLAW_HOME/.openclaw/ — append it if not already there.
+    _home = explicit.endsWith(".openclaw") ? explicit : join(explicit, ".openclaw");
+  } else {
+    _home = join(homedir(), ".openclaw");
+  }
   return _home;
 }
 

@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mission Control — GitHub</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div id="nav"></div>
+
+  <main class="page">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
+      <h1 style="font-size:1.25rem;font-weight:700;">GitHub</h1>
+      <span id="last-updated" style="font-size:0.75rem;color:var(--muted);">Loading…</span>
+    </div>
+
+    <div id="github-content">
+      <div id="prs-section"><div style="color:var(--muted);">Loading pull requests…</div></div>
+      <div id="ci-section" style="margin-top:1.5rem;"><div style="color:var(--muted);">Loading CI runs…</div></div>
+    </div>
+  </main>
+
+  <script src="/js/shared.js"></script>
+  <script src="/js/github.js"></script>
+</body>
+</html>

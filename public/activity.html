@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mission Control — Activity</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div id="nav"></div>
+
+  <main class="page">
+    <!-- Filters -->
+    <div class="surface" style="margin-bottom:1.5rem;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
+        <h2 style="font-size:0.875rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Activity Feed</h2>
+        <span id="total-count" style="font-size:0.75rem;color:var(--muted);"></span>
+      </div>
+      <div class="filter-bar">
+        <div>
+          <label style="font-size:0.75rem;color:var(--muted);display:block;margin-bottom:0.25rem;">Scope</label>
+          <select id="filter-scope">
+            <option value="all">All scopes</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:0.75rem;color:var(--muted);display:block;margin-bottom:0.25rem;">Type</label>
+          <select id="filter-type">
+            <option value="all">All types</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:0.75rem;color:var(--muted);display:block;margin-bottom:0.25rem;">Date range</label>
+          <select id="filter-days">
+            <option value="7">Last 7 days</option>
+            <option value="30" selected>Last 30 days</option>
+            <option value="">All time</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Events list -->
+    <div class="surface">
+      <div id="events-list">
+        <div style="color:var(--muted);">Loading…</div>
+      </div>
+      <div id="pagination"></div>
+    </div>
+  </main>
+
+  <script src="/js/shared.js"></script>
+  <script src="/js/activity.js"></script>
+</body>
+</html>

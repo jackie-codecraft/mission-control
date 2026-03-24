@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mission Control — Overview</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div id="nav"></div>
+
+  <main class="page">
+    <!-- Stat Cards -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1rem;margin-bottom:1.5rem;">
+
+      <div class="stat-card">
+        <div class="stat-label">Uptime</div>
+        <div class="stat-value" id="stat-uptime" style="font-size:1.25rem;">—</div>
+        <div class="stat-sub">Server running</div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-label">CPU Load</div>
+        <div class="stat-value" id="stat-cpu">—</div>
+        <div class="progress-bar" style="margin-top:0.5rem;">
+          <div class="progress-fill" id="cpu-bar" style="width:0%"></div>
+        </div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-label">Memory</div>
+        <div class="stat-value" id="stat-memory">—</div>
+        <div id="stat-memory-sub" class="stat-sub">— / —</div>
+        <div class="progress-bar" style="margin-top:0.25rem;">
+          <div class="progress-fill" id="memory-bar" style="width:0%"></div>
+        </div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-label">Gateway</div>
+        <div class="stat-value" id="stat-gateway" style="font-size:1.25rem;">—</div>
+        <div class="stat-sub">OpenClaw gateway</div>
+      </div>
+
+    </div>
+
+    <!-- Context + Heartbeat row -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.5rem;">
+
+      <!-- Context Widget -->
+      <div class="surface">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+          <h2 style="font-size:0.875rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Context / Memory</h2>
+          <span id="ctx-percent" style="font-family:monospace;color:var(--cyan);">—</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:0.875rem;margin-bottom:0.5rem;">
+          <span style="color:var(--text);font-family:monospace;" id="ctx-tokens">—</span>
+          <span style="color:var(--muted);">/ <span id="ctx-limit">—</span></span>
+        </div>
+        <div class="progress-bar" style="height:8px;">
+          <div class="progress-fill" id="ctx-bar" style="width:0%"></div>
+        </div>
+        <div style="font-size:0.75rem;color:var(--muted);margin-top:0.5rem;">Main session context window usage</div>
+      </div>
+
+      <!-- Heartbeat Widget -->
+      <div class="surface">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+          <h2 style="font-size:0.875rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Heartbeat</h2>
+          <span class="badge badge-green">Scheduled</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:0.5rem;font-size:0.875rem;">
+          <div style="display:flex;justify-content:space-between;">
+            <span style="color:var(--muted);">Last run</span>
+            <span id="hb-last" style="color:var(--text);">—</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;">
+            <span style="color:var(--muted);">Result</span>
+            <span id="hb-result" style="color:var(--text);">—</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Stats Row -->
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-bottom:1.5rem;">
+
+      <div class="stat-card" style="text-align:center;">
+        <div class="stat-label" style="text-align:center;">Subagents Today</div>
+        <div class="stat-value" id="stat-subagents-today" style="text-align:center;">—</div>
+      </div>
+
+      <div class="stat-card" style="text-align:center;">
+        <div class="stat-label" style="text-align:center;">Active Sessions</div>
+        <div class="stat-value" id="stat-sessions" style="text-align:center;">—</div>
+      </div>
+
+      <div class="stat-card" style="text-align:center;">
+        <div class="stat-label" style="text-align:center;">Tokens Today</div>
+        <div class="stat-value" id="stat-tokens-today" style="text-align:center;font-size:1.5rem;">—</div>
+      </div>
+
+    </div>
+
+    <!-- Footer -->
+    <div style="text-align:center;color:var(--muted);font-size:0.75rem;padding-top:1rem;border-top:1px solid var(--border);">
+      <span id="last-updated">Loading…</span>
+      &nbsp;·&nbsp; Auto-refresh every 30s &nbsp;·&nbsp; Mission Control v2
+    </div>
+  </main>
+
+  <script src="/js/shared.js"></script>
+  <script src="/js/overview.js"></script>
+</body>
+</html>

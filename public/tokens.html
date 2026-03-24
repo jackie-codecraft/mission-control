@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mission Control — Tokens</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div id="nav"></div>
+
+  <main class="page">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
+      <h1 style="font-size:1.25rem;font-weight:700;">Token Usage</h1>
+      <span id="last-updated" style="font-size:0.75rem;color:var(--muted);">Loading…</span>
+    </div>
+
+    <!-- Summary Cards -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;margin-bottom:1.5rem;">
+      <div class="stat-card" style="text-align:center;">
+        <div class="stat-label" style="text-align:center;">Today</div>
+        <div class="stat-value" id="tokens-today" style="text-align:center;color:var(--cyan);">—</div>
+        <div class="stat-sub" style="text-align:center;">tokens</div>
+      </div>
+      <div class="stat-card" style="text-align:center;">
+        <div class="stat-label" style="text-align:center;">This Week</div>
+        <div class="stat-value" id="tokens-week" style="text-align:center;">—</div>
+        <div class="stat-sub" style="text-align:center;">tokens</div>
+      </div>
+      <div class="stat-card" style="text-align:center;">
+        <div class="stat-label" style="text-align:center;">This Month</div>
+        <div class="stat-value" id="tokens-month" style="text-align:center;">—</div>
+        <div class="stat-sub" style="text-align:center;">tokens (30 days)</div>
+      </div>
+    </div>
+
+    <!-- Charts row -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.5rem;">
+
+      <!-- By Model -->
+      <div class="surface">
+        <h2 style="font-size:0.875rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:1rem;">By Model</h2>
+        <div id="model-breakdown">
+          <div style="color:var(--muted);">Loading…</div>
+        </div>
+      </div>
+
+      <!-- By Scope -->
+      <div class="surface">
+        <h2 style="font-size:0.875rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:1rem;">By Scope / Project</h2>
+        <div id="scope-breakdown">
+          <div style="color:var(--muted);">Loading…</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Daily chart -->
+    <div class="surface">
+      <h2 style="font-size:0.875rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:1rem;">Daily Usage (last 14 days)</h2>
+      <div id="daily-chart">
+        <div style="color:var(--muted);">Loading…</div>
+      </div>
+      <div style="font-size:0.75rem;color:var(--muted);margin-top:0.75rem;text-align:right;">
+        Cyan bar = today · Data sourced from events.jsonl
+      </div>
+    </div>
+  </main>
+
+  <script src="/js/shared.js"></script>
+  <script src="/js/tokens.js"></script>
+</body>
+</html>

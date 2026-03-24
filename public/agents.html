@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mission Control — Agents</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div id="nav"></div>
+
+  <!-- Modal -->
+  <div id="modal" class="modal-overlay" style="display:none;">
+    <div class="modal-content" id="modal-content">
+      <!-- Filled by agents.js -->
+    </div>
+  </div>
+
+  <main class="page">
+    <!-- Main Agent -->
+    <div class="surface" style="margin-bottom:1.5rem;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
+        <h2 style="font-size:0.875rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Main Agent</h2>
+        <span class="badge badge-cyan">Active</span>
+      </div>
+      <div id="main-agent">
+        <div style="color:var(--muted);">Loading…</div>
+      </div>
+    </div>
+
+    <!-- Subagents -->
+    <div class="surface" style="margin-bottom:1.5rem;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+        <h2 style="font-size:0.875rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Subagents</h2>
+        <span id="last-updated" style="font-size:0.75rem;color:var(--muted);">Loading…</span>
+      </div>
+      <div id="subagents">
+        <div style="color:var(--muted);">Loading…</div>
+      </div>
+    </div>
+
+    <!-- Recent Activity -->
+    <div class="surface">
+      <h2 style="font-size:0.875rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:1rem;">Recent Activity</h2>
+      <div id="recent-activity">
+        <div style="color:var(--muted);">Loading…</div>
+      </div>
+    </div>
+  </main>
+
+  <script src="/js/shared.js"></script>
+  <script src="/js/agents.js"></script>
+</body>
+</html>

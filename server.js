@@ -134,11 +134,38 @@ app.get('/api/stats', async (req, res) => {
 
       const parsed = sessions.parseSessions(rawSessions);
       const tokenAgg = events.getTokenAggregates();
+      const dailyStats = sessions.getDailyStats();
 
-      // Heartbeat: look for heartbeat sessions in recent sessions
-      const heartbeatSession = rawSessions.find(s =>
-        (s.label || '').toLowerCase().includes('heartbeat')
-      );
+      // Heartbeat: read from openclaw.json config
+      let heartbeatConfig = null;
+      try {
+        const fs = require('fs');
+        const os = require('os');
+        const clawConfig = JSON.parse(fs.readFileSync(os.homedir() + '/.openclaw/openclaw.json', 'utf8'));
+        const hb = clawConfig?.agents?.defaults?.heartbeat || {};
+        if (hb.every) {
+          heartbeatConfig = {
+            every: hb.every,
+            activeHours: hb.activeHours || null,
+            target: hb.target || null,
+          };
+        }
+      } catch (_) {}
+
+      // Last heartbeat: look for heartbeat-labeled sessions
+      const sessionsJson = sessions.loadSessionsJson();
+      let lastHeartbeat = null;
+      let latestHbTime = 0;
+      for (const [key, v] of Object.entries(sessionsJson)) {
+        const label = (v.label || '').toLowerCase();
+        if (label.includes('heartbeat')) {
+          const t = v.updatedAt || 0;
+          if (t > latestHbTime) {
+            latestHbTime = t;
+            lastHeartbeat = { time: new Date(t).toISOString(), label: v.label, key };
+          }
+        }
+      }
 
       return {
         uptime: uptime.uptime,
@@ -163,18 +190,13 @@ app.get('/api/stats', async (req, res) => {
           limit: parsed.mainAgent.contextLimit,
           percent: Math.round((parsed.mainAgent.tokens / parsed.mainAgent.contextLimit) * 100),
         } : null,
-        heartbeat: heartbeatSession ? {
-          last: heartbeatSession.startTime || heartbeatSession.createdAt,
-          result: heartbeatSession.status,
-          label: heartbeatSession.label,
+        heartbeat: heartbeatConfig ? {
+          config: heartbeatConfig,
+          last: lastHeartbeat,
         } : null,
-        tokensToday: tokenAgg.tokensToday,
-        tasksToday: tokenAgg.dailyChart[tokenAgg.dailyChart.length - 1]?.tokens > 0 ? '—' : 0,
-        subagentsToday: rawSessions.filter(s => {
-          const isSubagent = (s.label || '').includes('subagent') || s.depth > 0;
-          const today = new Date(); today.setHours(0, 0, 0, 0);
-          return isSubagent && new Date(s.startTime || s.createdAt || 0) >= today;
-        }).length,
+        tokensToday: dailyStats.tokensToday || tokenAgg.tokensToday,
+        tasksToday: dailyStats.subagentsToday,
+        subagentsToday: dailyStats.subagentsToday,
         timestamp: new Date().toISOString(),
       };
     });
@@ -271,21 +293,39 @@ app.get('/api/tokens', async (req, res) => {
 app.get('/api/heartbeat', async (req, res) => {
   try {
     const data = await cache.cached('heartbeat', 30000, async () => {
-      const rawSessions = sessions.getSessions(120);
-      const hbSessions = rawSessions.filter(s =>
-        (s.label || '').toLowerCase().includes('heartbeat')
-      ).sort((a, b) => new Date(b.startTime || b.createdAt || 0) - new Date(a.startTime || a.createdAt || 0));
+      // Read heartbeat config from openclaw.json
+      let heartbeatConfig = {};
+      try {
+        const fs = require('fs');
+        const os = require('os');
+        const clawConfig = JSON.parse(fs.readFileSync(os.homedir() + '/.openclaw/openclaw.json', 'utf8'));
+        heartbeatConfig = clawConfig?.agents?.defaults?.heartbeat || {};
+      } catch (_) {}
 
-      const last = hbSessions[0] || null;
+      // Find heartbeat sessions from sessions.json
+      const sessionsJson = sessions.loadSessionsJson();
+      const hbEntries = [];
+      for (const [key, v] of Object.entries(sessionsJson)) {
+        const label = (v.label || '').toLowerCase();
+        if (label.includes('heartbeat')) {
+          hbEntries.push({ key, label: v.label, updatedAt: v.updatedAt || 0, ...v });
+        }
+      }
+      hbEntries.sort((a, b) => b.updatedAt - a.updatedAt);
+
+      const last = hbEntries[0] || null;
       return {
         last: last ? {
-          time: last.startTime || last.createdAt,
-          status: last.status,
+          time: new Date(last.updatedAt).toISOString(),
           label: last.label,
-          tokens: last.tokens,
+          key: last.key,
         } : null,
-        schedule: process.env.HEARTBEAT_SCHEDULE || '0 */6 * * *',
-        count: hbSessions.length,
+        config: {
+          every: heartbeatConfig.every || null,
+          activeHours: heartbeatConfig.activeHours || null,
+          target: heartbeatConfig.target || null,
+        },
+        count: hbEntries.length,
       };
     });
     res.json(data);

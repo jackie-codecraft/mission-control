@@ -226,12 +226,21 @@ app.get('/api/agents', async (req, res) => {
       // Recent activity from events
       const recentActivity = await events.readEvents({ type: 'subagent', days: 1, limit: 20 });
 
+      const mainEnriched = parsed.mainAgent ? {
+        ...enrich(parsed.mainAgent),
+        running: running.length,
+        done: completed.length,
+        killed: killed.length,
+      } : null;
+
       return {
-        main: parsed.mainAgent ? enrich(parsed.mainAgent) : null,
+        main: mainEnriched,
+        agents: [...running, ...completed, ...killed, ...other],
         subagents: { running, completed, killed, other },
         counts: {
           running: running.length,
           completed: completed.length,
+          done: completed.length,
           killed: killed.length,
           total: parsed.subagents.length,
         },

@@ -44,6 +44,7 @@ type AgentFull = {
     lastActive: number;
     ageMs: number;
     status: "running" | "recent";
+    label?: string;
   }>;
   status: "active" | "idle" | "unknown";
 };
@@ -471,6 +472,7 @@ export async function GET() {
           lastActive: session.updatedAt,
           ageMs,
           status: ageMs <= SUBAGENT_ACTIVE_WINDOW_MS ? "running" : "recent",
+          label: session.label || session.originLabel,
         };
         const existing = runtimeSubagentsByAgent.get(session.agentId) || [];
         existing.push(row);

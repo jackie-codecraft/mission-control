@@ -159,6 +159,7 @@ type Agent = {
     lastActive: number;
     ageMs: number;
     status: "running" | "recent";
+    label?: string;
   }>;
   status: "active" | "idle" | "unknown";
 };
@@ -344,15 +345,19 @@ function RuntimeSubagentNodeComponent({ data }: NodeProps) {
     status: "running" | "recent";
     totalTokens: number;
     lastActive: number;
+    label?: string;
+    onClick?: () => void;
   };
 
   return (
     <div
+      onClick={() => d.onClick?.()}
       className={cn(
         "rounded-lg border px-3 py-2 min-w-40",
         d.status === "running"
           ? "border-[var(--accent-brand-border)] bg-[var(--accent-brand-subtle)]"
-          : "border-zinc-500/30 bg-zinc-900/40"
+          : "border-zinc-500/30 bg-zinc-900/40",
+        d.onClick ? "cursor-pointer hover:border-[var(--accent-brand-border)]" : ""
       )}
     >
       <Handle
@@ -368,7 +373,7 @@ function RuntimeSubagentNodeComponent({ data }: NodeProps) {
       <div className="flex items-center gap-1.5">
         <Sparkles className={cn("h-3.5 w-3.5", d.status === "running" ? "text-[var(--accent-brand)]" : "text-zinc-300")} />
         <p className="text-xs font-semibold text-foreground/90">
-          subagent #{d.shortId}
+          {d.label ? d.label : `subagent #${d.shortId}`}
         </p>
       </div>
       <p className="mt-1 truncate text-xs text-muted-foreground">
@@ -453,7 +458,8 @@ function buildGraph(
   onSelectAgent: (id: string) => void,
   selectedWorkspacePath: string | null,
   onSelectWorkspace: (workspacePath: string) => void,
-  savedPositions?: Record<string, { x: number; y: number }>
+  savedPositions?: Record<string, { x: number; y: number }>,
+  onSelectSubagent?: (subagent: Agent["runtimeSubagents"][number]) => void,
 ): { nodes: Node[]; edges: Edge[] } {
   const nodes: Node[] = [];
   const edges: Edge[] = [];
@@ -754,6 +760,8 @@ function buildGraph(
           status: sub.status,
           totalTokens: sub.totalTokens,
           lastActive: sub.lastActive,
+          label: sub.label,
+          onClick: onSelectSubagent ? () => onSelectSubagent(sub) : undefined,
         },
         draggable: true,
       });
@@ -1480,12 +1488,14 @@ function FlowViewInner({
   onSelect,
   selectedWorkspacePath,
   onSelectWorkspace,
+  onSelectSubagent,
 }: {
   data: AgentsResponse;
   selectedId: string | null;
   onSelect: (id: string) => void;
   selectedWorkspacePath: string | null;
   onSelectWorkspace: (workspacePath: string) => void;
+  onSelectSubagent?: (subagent: Agent["runtimeSubagents"][number]) => void;
 }) {
   const { fitView } = useReactFlow();
   const [savedPos, setSavedPos] = useState<Record<string, { x: number; y: number }>>(loadSavedPositions);
@@ -1498,9 +1508,10 @@ function FlowViewInner({
         onSelect,
         selectedWorkspacePath,
         onSelectWorkspace,
-        savedPos
+        savedPos,
+        onSelectSubagent,
       ),
-    [data, selectedId, onSelect, selectedWorkspacePath, onSelectWorkspace, savedPos]
+    [data, selectedId, onSelect, selectedWorkspacePath, onSelectWorkspace, savedPos, onSelectSubagent]
   );
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
@@ -1514,7 +1525,8 @@ function FlowViewInner({
       onSelect,
       selectedWorkspacePath,
       onSelectWorkspace,
-      savedPos
+      savedPos,
+      onSelectSubagent,
     );
     setNodes(newNodes);
     setEdges(newEdges);
@@ -1525,6 +1537,7 @@ function FlowViewInner({
     selectedWorkspacePath,
     onSelectWorkspace,
     savedPos,
+    onSelectSubagent,
     setNodes,
     setEdges,
   ]);
@@ -1593,12 +1606,14 @@ function FlowView({
   onSelect,
   selectedWorkspacePath,
   onSelectWorkspace,
+  onSelectSubagent,
 }: {
   data: AgentsResponse;
   selectedId: string | null;
   onSelect: (id: string) => void;
   selectedWorkspacePath: string | null;
   onSelectWorkspace: (workspacePath: string) => void;
+  onSelectSubagent?: (subagent: Agent["runtimeSubagents"][number]) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
@@ -1633,6 +1648,7 @@ function FlowView({
               onSelect={onSelect}
               selectedWorkspacePath={selectedWorkspacePath}
               onSelectWorkspace={onSelectWorkspace}
+              onSelectSubagent={onSelectSubagent}
             />
           </ReactFlowProvider>
         </div>
@@ -4294,6 +4310,162 @@ function WorkspaceFilesModal({
 }
 
 /* ================================================================
+   Runtime Subagent Detail Modal
+   ================================================================ */
+
+function RuntimeSubagentDetailModal({
+  subagent,
+  agentId,
+  onClose,
+}: {
+  subagent: Agent["runtimeSubagents"][number];
+  agentId: string | null;
+  onClose: () => void;
+}) {
+  const [task, setTask] = useState<string | null>(null);
+  const [loadingTask, setLoadingTask] = useState(true);
+  const [taskError, setTaskError] = useState<string | null>(null);
+  const [taskExpanded, setTaskExpanded] = useState(false);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  useEffect(() => {
+    setLoadingTask(true);
+    setTaskError(null);
+    setTask(null);
+    const effectiveAgentId = agentId || "main";
+    fetch(`/api/sessions/task?sessionId=${encodeURIComponent(subagent.sessionId)}&agentId=${encodeURIComponent(effectiveAgentId)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.error) {
+          setTaskError(data.error);
+        } else {
+          setTask(typeof data.task === "string" ? data.task : null);
+        }
+      })
+      .catch((err) => setTaskError(String(err)))
+      .finally(() => setLoadingTask(false));
+  }, [subagent.sessionId, agentId]);
+
+  const TASK_PREVIEW_LENGTH = 500;
+  const taskIsLong = task !== null && task.length > TASK_PREVIEW_LENGTH;
+  const displayedTask = taskIsLong && !taskExpanded ? task.slice(0, TASK_PREVIEW_LENGTH) + "…" : task;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative z-10 flex max-h-[calc(100vh-2rem)] w-full max-w-xl flex-col overflow-hidden rounded-2xl glass-strong animate-modal-in">
+        {/* Header */}
+        <div className="flex shrink-0 items-center justify-between border-b border-foreground/10 px-5 py-4">
+          <div className="flex items-center gap-3">
+            <div className={cn(
+              "flex h-8 w-8 items-center justify-center rounded-lg",
+              subagent.status === "running"
+                ? "bg-[var(--accent-brand-subtle)] ring-1 ring-[var(--accent-brand-border)]"
+                : "bg-zinc-800/50 ring-1 ring-zinc-700/50"
+            )}>
+              <Sparkles className={cn("h-4 w-4", subagent.status === "running" ? "text-[var(--accent-brand-text)]" : "text-zinc-400")} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-xs font-bold text-foreground">
+                  {subagent.label || `Subagent #${subagent.shortId}`}
+                </h2>
+                <span className={cn(
+                  "rounded-full px-2 py-0.5 text-xs font-medium",
+                  subagent.status === "running"
+                    ? "bg-emerald-500/15 text-emerald-400"
+                    : "bg-zinc-700/50 text-zinc-400"
+                )}>
+                  {subagent.status}
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {shortModel(subagent.model)} · {formatTokens(subagent.totalTokens)} tokens · {formatAgo(subagent.lastActive)}
+              </p>
+            </div>
+          </div>
+          <button type="button" onClick={onClose} className="rounded p-1 text-muted-foreground/60 hover:text-foreground/70">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
+          {/* Session details */}
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="rounded-lg border border-foreground/10 bg-card/80 px-3 py-2">
+              <p className="text-muted-foreground/60">Session ID</p>
+              <code className="mt-0.5 block truncate text-foreground/70 text-[11px]">{subagent.sessionId}</code>
+            </div>
+            <div className="rounded-lg border border-foreground/10 bg-card/80 px-3 py-2">
+              <p className="text-muted-foreground/60">Session Key</p>
+              <code className="mt-0.5 block truncate text-foreground/70 text-[11px]">{subagent.sessionKey}</code>
+            </div>
+          </div>
+
+          {/* Task Brief */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground/70">
+              <Terminal className="h-3.5 w-3.5 text-[var(--accent-brand-text)]" />
+              Task Brief
+            </div>
+            {loadingTask ? (
+              <div className="flex items-center gap-2 rounded-lg border border-foreground/10 bg-foreground/5 px-3 py-3 text-xs text-muted-foreground/60">
+                <InlineSpinner size="sm" />
+                Loading task brief…
+              </div>
+            ) : taskError ? (
+              <div className="rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-xs text-red-400">
+                Could not load task: {taskError}
+              </div>
+            ) : task ? (
+              <div className="space-y-1.5">
+                <pre className="max-h-96 overflow-auto rounded-lg border border-foreground/10 bg-foreground/5 px-3 py-2.5 text-xs font-mono text-foreground/80 leading-relaxed whitespace-pre-wrap">
+                  {displayedTask}
+                </pre>
+                {taskIsLong && (
+                  <button
+                    type="button"
+                    onClick={() => setTaskExpanded(!taskExpanded)}
+                    className="flex items-center gap-1 text-xs text-[var(--accent-brand-text)] hover:text-[var(--accent-brand)]"
+                  >
+                    {taskExpanded ? (
+                      <><ChevronUp className="h-3 w-3" /> Show less</>
+                    ) : (
+                      <><ChevronDown className="h-3 w-3" /> Show full task ({task.length} chars)</>
+                    )}
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="rounded-lg border border-dashed border-foreground/10 px-3 py-2 text-xs text-muted-foreground/60">
+                No task brief found in session.
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex shrink-0 items-center justify-end border-t border-foreground/10 px-5 py-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-foreground/10 px-4 py-2 text-xs text-muted-foreground transition-colors hover:bg-foreground/5"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ================================================================
    Main Export
    ================================================================ */
 
@@ -4319,11 +4491,16 @@ export function AgentsView() {
   const [editingAgentId, setEditingAgentId] = useState<string | null>(null);
   const [selectedWorkspacePath, setSelectedWorkspacePath] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [selectedSubagent, setSelectedSubagent] = useState<Agent["runtimeSubagents"][number] | null>(null);
   const [savedAgentOrder, setSavedAgentOrder] = useState<string[]>(loadSavedAgentOrder);
 
   const handleAgentClick = useCallback((id: string) => {
     setSelectedId(id);
     setEditingAgentId(id);
+  }, []);
+
+  const handleSubagentClick = useCallback((subagent: Agent["runtimeSubagents"][number]) => {
+    setSelectedSubagent(subagent);
   }, []);
 
   const handleWorkspaceClick = useCallback((workspacePath: string) => {
@@ -4579,6 +4756,7 @@ export function AgentsView() {
           onSelect={handleAgentClick}
           selectedWorkspacePath={selectedWorkspacePath}
           onSelectWorkspace={handleWorkspaceClick}
+          onSelectSubagent={handleSubagentClick}
         />
       )}
 
@@ -4640,6 +4818,15 @@ export function AgentsView() {
           workspacePath={selectedWorkspacePath}
           onClose={() => setSelectedWorkspacePath(null)}
           onOpenDocument={openDocumentForWorkspace}
+        />
+      )}
+
+      {/* Runtime Subagent Detail Modal */}
+      {selectedSubagent && (
+        <RuntimeSubagentDetailModal
+          subagent={selectedSubagent}
+          agentId={selectedId}
+          onClose={() => setSelectedSubagent(null)}
         />
       )}
     </SectionLayout>

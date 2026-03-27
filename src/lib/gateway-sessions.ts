@@ -18,6 +18,7 @@ export type GatewaySession = {
   systemSent?: boolean | null;
   abortedLastRun?: boolean | null;
   origin?: { label?: string | null } | null;
+  label?: string | null;
   [key: string]: unknown;
 };
 
@@ -47,6 +48,7 @@ export type NormalizedGatewaySession = {
   systemSent: boolean;
   abortedLastRun: boolean;
   originLabel?: string;
+  label?: string;
 };
 
 export type AgentSessionSummary = {
@@ -129,6 +131,7 @@ function normalizeGatewaySession(
     systemSent: Boolean(session.systemSent),
     abortedLastRun: Boolean(session.abortedLastRun),
     originLabel: session.origin?.label ? String(session.origin.label) : undefined,
+    label: session.label ? String(session.label) : undefined,
   };
 }
 

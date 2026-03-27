@@ -1,6 +1,6 @@
 import { runOpenResponsesText, guessMime } from "@/lib/openresponses";
 import { getGatewayUrl, getGatewayToken } from "@/lib/paths";
-import { waitForResponsesEndpoint, triggerResponsesEndpointSetup } from "@/app/api/gateway/route";
+import { waitForResponsesEndpoint, triggerResponsesEndpointSetup } from "@/lib/responses-endpoint";
 
 /**
  * Chat endpoint that sends a message to an OpenClaw agent and returns the response.

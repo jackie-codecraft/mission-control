@@ -452,6 +452,16 @@ select option {
   background: #00b8d9;
 }
 
+.btn-red {
+  background: rgba(239,68,68,0.15);
+  color: var(--red);
+  border: 1px solid rgba(239,68,68,0.3);
+}
+
+.btn-red:hover {
+  background: rgba(239,68,68,0.25);
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .nav-tab span { display: none; }

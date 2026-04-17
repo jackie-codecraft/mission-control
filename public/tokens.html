@@ -14,12 +14,12 @@
 
   <main class="page">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
-      <h1 style="font-size:1.25rem;font-weight:700;">Token Usage</h1>
+      <h1 style="font-size:1.25rem;font-weight:700;">Token Usage & Costs</h1>
       <span id="last-updated" style="font-size:0.75rem;color:var(--muted);">Loading…</span>
     </div>
 
-    <!-- Summary Cards -->
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;margin-bottom:1.5rem;">
+    <!-- Summary Cards: tokens -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:1rem;margin-bottom:1rem;">
       <div class="stat-card" style="text-align:center;">
         <div class="stat-label" style="text-align:center;">Today</div>
         <div class="stat-value" id="tokens-today" style="text-align:center;color:var(--cyan);">—</div>
@@ -33,7 +33,26 @@
       <div class="stat-card" style="text-align:center;">
         <div class="stat-label" style="text-align:center;">This Month</div>
         <div class="stat-value" id="tokens-month" style="text-align:center;">—</div>
-        <div class="stat-sub" style="text-align:center;">tokens (30 days)</div>
+        <div class="stat-sub" style="text-align:center;">tokens (30d)</div>
+      </div>
+    </div>
+
+    <!-- Cost Cards -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:1rem;margin-bottom:1.5rem;">
+      <div class="stat-card" style="text-align:center;border-color:rgba(245,158,11,0.3);">
+        <div class="stat-label" style="text-align:center;">Est. Cost Today</div>
+        <div class="stat-value" id="cost-today" style="text-align:center;color:var(--amber);font-size:1.5rem;">—</div>
+        <div class="stat-sub" style="text-align:center;">USD (approx)</div>
+      </div>
+      <div class="stat-card" style="text-align:center;border-color:rgba(245,158,11,0.3);">
+        <div class="stat-label" style="text-align:center;">Est. Cost Week</div>
+        <div class="stat-value" id="cost-week" style="text-align:center;color:var(--amber);font-size:1.5rem;">—</div>
+        <div class="stat-sub" style="text-align:center;">USD (approx)</div>
+      </div>
+      <div class="stat-card" style="text-align:center;border-color:rgba(245,158,11,0.3);">
+        <div class="stat-label" style="text-align:center;">Est. Cost Month</div>
+        <div class="stat-value" id="cost-month" style="text-align:center;color:var(--amber);font-size:1.5rem;">—</div>
+        <div class="stat-sub" style="text-align:center;">USD (approx)</div>
       </div>
     </div>
 
@@ -64,8 +83,9 @@
       <div id="daily-chart">
         <div style="color:var(--muted);">Loading…</div>
       </div>
-      <div style="font-size:0.75rem;color:var(--muted);margin-top:0.75rem;text-align:right;">
-        Cyan bar = today · Data sourced from events.jsonl
+      <div style="font-size:0.75rem;color:var(--muted);margin-top:0.75rem;display:flex;justify-content:space-between;">
+        <span>Cyan = today · Data sourced from events.jsonl</span>
+        <span>Cost estimates: Opus $45/1M · Sonnet $9/1M · Haiku $2.4/1M</span>
       </div>
     </div>
   </main>

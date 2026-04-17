@@ -4,6 +4,8 @@ require('dotenv').config();
 const express = require('express');
 const cookieParser = require('cookie-parser');
 const path = require('path');
+const { execSync } = require('child_process');
+const os = require('os');
 const cache = require('./lib/cache');
 const system = require('./lib/system');
 const sessions = require('./lib/sessions');
@@ -16,9 +18,22 @@ const HOST = process.env.HOST || '0.0.0.0';
 const PASSWORD = process.env.DASHBOARD_PASSWORD || 'changeme';
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN || '';
 const GITHUB_ORG = process.env.GITHUB_ORG || 'jackie-codecraft';
+const NPM_BIN = os.homedir() + '/.npm-global/bin';
+const CLI_ENV = { ...process.env, PATH: process.env.PATH + ':' + NPM_BIN };
 
 app.use(express.json());
 app.use(cookieParser());
+
+// ── SSE clients ───────────────────────────────────────────────────────────────
+
+const sseClients = new Set();
+
+function broadcastSSE(event) {
+  const data = `data: ${JSON.stringify(event)}\n\n`;
+  for (const client of sseClients) {
+    try { client.write(data); } catch (_) { sseClients.delete(client); }
+  }
+}
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
 
@@ -31,9 +46,7 @@ function isAuthed(req) {
 
 function authMiddleware(req, res, next) {
   if (isAuthed(req)) return next();
-  // Allow login page and login POST
   if (req.path === '/login' || req.path === '/api/login') return next();
-  // Redirect HTML requests to login
   const acceptsHtml = req.headers.accept && req.headers.accept.includes('text/html');
   if (acceptsHtml) return res.redirect('/login');
   res.status(401).json({ error: 'Unauthorized' });
@@ -119,16 +132,57 @@ app.post('/api/logout', (req, res) => {
 
 app.use(express.static(path.join(__dirname, 'public')));
 
+// ── SSE ───────────────────────────────────────────────────────────────────────
+
+app.get('/api/sse', (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  res.write(`data: ${JSON.stringify({ type: 'connected', ts: Date.now() })}\n\n`);
+
+  sseClients.add(res);
+
+  // Keepalive ping every 20s
+  const keepalive = setInterval(() => {
+    try { res.write(':keepalive\n\n'); } catch (_) {}
+  }, 20000);
+
+  req.on('close', () => {
+    clearInterval(keepalive);
+    sseClients.delete(res);
+  });
+});
+
+// Periodic stats broadcast every 15s (only when clients are connected)
+setInterval(async () => {
+  if (!sseClients.size) return;
+  try {
+    const rawSessions = sessions.getSessions(60);
+    const parsed = sessions.parseSessions(rawSessions);
+    const running = parsed.subagents.filter(s => s.status === 'running' || s.status === 'active');
+    broadcastSSE({
+      type: 'stats.update',
+      runningCount: running.length,
+      totalSessions: parsed.count,
+      ts: Date.now(),
+    });
+  } catch (_) {}
+}, 15000);
+
 // ── API ───────────────────────────────────────────────────────────────────────
 
 app.get('/api/stats', async (req, res) => {
   try {
     const data = await cache.cached('stats', 10000, async () => {
-      const [uptime, cpu, memory, gatewayStatus, rawSessions] = await Promise.all([
+      const [uptime, cpu, memory, gatewayStatus, disk, rawSessions] = await Promise.all([
         Promise.resolve(system.parseUptime()),
         Promise.resolve(system.parseCpu()),
         Promise.resolve(system.parseMemory()),
         Promise.resolve(system.getGatewayStatus()),
+        Promise.resolve(system.getDiskUsage()),
         Promise.resolve(sessions.getSessions(60)),
       ]);
 
@@ -136,11 +190,10 @@ app.get('/api/stats', async (req, res) => {
       const tokenAgg = events.getTokenAggregates();
       const dailyStats = sessions.getDailyStats();
 
-      // Heartbeat: read from openclaw.json config
+      // Heartbeat config
       let heartbeatConfig = null;
       try {
         const fs = require('fs');
-        const os = require('os');
         const clawConfig = JSON.parse(fs.readFileSync(os.homedir() + '/.openclaw/openclaw.json', 'utf8'));
         const hb = clawConfig?.agents?.defaults?.heartbeat || {};
         if (hb.every) {
@@ -152,7 +205,7 @@ app.get('/api/stats', async (req, res) => {
         }
       } catch (_) {}
 
-      // Last heartbeat: look for heartbeat-labeled sessions
+      // Last heartbeat
       const sessionsJson = sessions.loadSessionsJson();
       let lastHeartbeat = null;
       let latestHbTime = 0;
@@ -167,6 +220,20 @@ app.get('/api/stats', async (req, res) => {
         }
       }
 
+      // Running subagents (for overview panel)
+      const now = Date.now();
+      const running = parsed.subagents
+        .filter(s => s.status === 'running' || s.status === 'active')
+        .map(s => ({
+          id: s.id,
+          key: s.key,
+          label: s.label,
+          task: s.task ? s.task.slice(0, 100) : null,
+          model: s.model,
+          runtime: s.spawnTime ? Math.round((now - new Date(s.spawnTime)) / 1000) : null,
+          tokens: s.tokens,
+        }));
+
       return {
         uptime: uptime.uptime,
         cpu: cpu.cpuPercent,
@@ -177,6 +244,12 @@ app.get('/api/stats', async (req, res) => {
           total: memory.totalFmt,
           available: memory.availFmt,
         },
+        disk: disk ? {
+          percent: disk.percent,
+          used: disk.usedFmt,
+          total: disk.totalFmt,
+          available: disk.availFmt,
+        } : null,
         gateway: gatewayStatus.status,
         sessions: {
           total: parsed.count,
@@ -195,8 +268,10 @@ app.get('/api/stats', async (req, res) => {
           last: lastHeartbeat,
         } : null,
         tokensToday: dailyStats.tokensToday || tokenAgg.tokensToday,
+        costToday: dailyStats.costToday || tokenAgg.costToday,
         tasksToday: dailyStats.subagentsToday,
         subagentsToday: dailyStats.subagentsToday,
+        runningAgents: running,
         timestamp: new Date().toISOString(),
       };
     });
@@ -223,7 +298,6 @@ app.get('/api/agents', async (req, res) => {
       const killed = parsed.subagents.filter(s => s.status === 'killed' || s.status === 'error' || s.status === 'failed').map(enrich);
       const other = parsed.subagents.filter(s => !['running','active','completed','done','killed','error','failed'].includes(s.status)).map(enrich);
 
-      // Recent activity from events
       const recentActivity = await events.readEvents({ type: 'subagent', days: 1, limit: 20 });
 
       const mainEnriched = parsed.mainAgent ? {
@@ -254,10 +328,35 @@ app.get('/api/agents', async (req, res) => {
   }
 });
 
+// Kill a running agent
+app.post('/api/agents/kill', (req, res) => {
+  const { key } = req.body;
+  if (!key || typeof key !== 'string') return res.status(400).json({ error: 'key is required' });
+
+  // Sanitize key: only allow expected characters
+  const safeKey = key.replace(/[^a-zA-Z0-9:._-]/g, '');
+  if (!safeKey) return res.status(400).json({ error: 'Invalid key' });
+
+  try {
+    execSync(`openclaw sessions kill "${safeKey}" 2>&1`, {
+      encoding: 'utf8',
+      timeout: 10000,
+      env: CLI_ENV,
+    });
+    cache.set('agents', null, 0);
+    cache.set('stats', null, 0);
+    broadcastSSE({ type: 'agent.killed', key: safeKey });
+    res.json({ ok: true });
+  } catch (e) {
+    const msg = (e.stdout || e.message || '').trim();
+    res.status(500).json({ error: msg || 'Kill failed' });
+  }
+});
+
 app.get('/api/activity', async (req, res) => {
   try {
-    const { scope, type, days, page, limit } = req.query;
-    const cacheKey = `activity:${scope}:${type}:${days}:${page}:${limit}`;
+    const { scope, type, days, page, limit, search } = req.query;
+    const cacheKey = `activity:${scope}:${type}:${days}:${page}:${limit}:${search}`;
     const data = await cache.cached(cacheKey, 10000, async () => {
       const result = await events.readEvents({
         scope: scope || 'all',
@@ -265,6 +364,7 @@ app.get('/api/activity', async (req, res) => {
         days: days ? parseInt(days) : null,
         page: page || 1,
         limit: limit || 50,
+        search: search || '',
       });
       const { scopes, types } = events.getScopes();
       return { ...result, scopes, types };
@@ -281,7 +381,8 @@ app.post('/api/events', (req, res) => {
     if (!event.type) return res.status(400).json({ error: 'type is required' });
     const saved = events.appendEvent(event);
     // Bust caches
-    ['stats', 'agents'].forEach(k => cache.set(k, null, 0));
+    ['stats', 'agents', 'tokens'].forEach(k => cache.set(k, null, 0));
+    broadcastSSE({ type: 'event.new', event: saved });
     res.json({ ok: true, event: saved });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -302,16 +403,13 @@ app.get('/api/tokens', async (req, res) => {
 app.get('/api/heartbeat', async (req, res) => {
   try {
     const data = await cache.cached('heartbeat', 30000, async () => {
-      // Read heartbeat config from openclaw.json
       let heartbeatConfig = {};
       try {
         const fs = require('fs');
-        const os = require('os');
         const clawConfig = JSON.parse(fs.readFileSync(os.homedir() + '/.openclaw/openclaw.json', 'utf8'));
         heartbeatConfig = clawConfig?.agents?.defaults?.heartbeat || {};
       } catch (_) {}
 
-      // Find heartbeat sessions from sessions.json
       const sessionsJson = sessions.loadSessionsJson();
       const hbEntries = [];
       for (const [key, v] of Object.entries(sessionsJson)) {

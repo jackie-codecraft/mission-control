@@ -28,8 +28,8 @@ function renderNav(activeHref) {
           `).join('')}
         </div>
         <div style="display:flex;align-items:center;gap:0.5rem;margin-left:1rem;">
-          <span class="live-dot"></span>
-          <span style="font-size:0.75rem;color:var(--muted)">Live</span>
+          <span class="live-dot" id="live-dot"></span>
+          <span style="font-size:0.75rem;color:var(--muted)" id="live-label">Live</span>
           <button onclick="logout()" style="margin-left:1rem;background:none;border:none;cursor:pointer;color:var(--muted);font-size:0.75rem;">Sign out</button>
         </div>
       </div>
@@ -50,6 +50,19 @@ async function apiFetch(path) {
   }
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   return r.json();
+}
+
+async function apiPost(path, body) {
+  const r = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (r.status === 401) {
+    window.location.href = '/login';
+    throw new Error('Unauthorized');
+  }
+  return { ok: r.ok, status: r.status, data: await r.json().catch(() => ({})) };
 }
 
 async function logout() {
@@ -90,6 +103,14 @@ function formatTokens(n) {
 function formatNumber(n) {
   if (!n) return '0';
   return n.toLocaleString();
+}
+
+function formatCost(usd) {
+  if (!usd && usd !== 0) return '—';
+  if (usd < 0.01) return '<$0.01';
+  if (usd < 1) return '$' + usd.toFixed(2);
+  if (usd < 100) return '$' + usd.toFixed(2);
+  return '$' + Math.round(usd).toLocaleString();
 }
 
 function statusBadge(status) {
@@ -155,9 +176,50 @@ function autoRefresh(fn, intervalMs) {
   return setInterval(fn, intervalMs);
 }
 
+// SSE connection helper
+function connectSSE(handlers) {
+  let es;
+  let retryTimeout;
+
+  function connect() {
+    try {
+      es = new EventSource('/api/sse');
+
+      es.onopen = () => {
+        const dot = document.getElementById('live-dot');
+        const label = document.getElementById('live-label');
+        if (dot) dot.style.background = 'var(--green)';
+        if (label) label.textContent = 'Live';
+      };
+
+      es.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+          if (handlers[msg.type]) handlers[msg.type](msg);
+          if (handlers['*']) handlers['*'](msg);
+        } catch (_) {}
+      };
+
+      es.onerror = () => {
+        const dot = document.getElementById('live-dot');
+        if (dot) dot.style.background = 'var(--amber)';
+        es.close();
+        retryTimeout = setTimeout(connect, 5000);
+      };
+    } catch (_) {}
+  }
+
+  connect();
+
+  return () => {
+    if (es) es.close();
+    if (retryTimeout) clearTimeout(retryTimeout);
+  };
+}
+
 // Expose globally
 window.MC = {
-  apiFetch, timeAgo, formatRuntime, formatTokens, formatNumber,
+  apiFetch, apiPost, timeAgo, formatRuntime, formatTokens, formatNumber, formatCost,
   statusBadge, typeBadge, escHtml, setError, showLoading, hideLoading,
-  autoRefresh, injectNav, logout
+  autoRefresh, injectNav, logout, connectSSE,
 };

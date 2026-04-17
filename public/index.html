@@ -40,6 +40,15 @@
       </div>
 
       <div class="stat-card">
+        <div class="stat-label">Disk (/)</div>
+        <div class="stat-value" id="stat-disk">—</div>
+        <div id="stat-disk-sub" class="stat-sub">— / —</div>
+        <div class="progress-bar" style="margin-top:0.25rem;">
+          <div class="progress-fill" id="disk-bar" style="width:0%"></div>
+        </div>
+      </div>
+
+      <div class="stat-card">
         <div class="stat-label">Gateway</div>
         <div class="stat-value" id="stat-gateway" style="font-size:1.25rem;">—</div>
         <div class="stat-sub">OpenClaw gateway</div>
@@ -87,7 +96,7 @@
     </div>
 
     <!-- Stats Row -->
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-bottom:1.5rem;">
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:1.5rem;">
 
       <div class="stat-card" style="text-align:center;">
         <div class="stat-label" style="text-align:center;">Subagents Today</div>
@@ -104,12 +113,28 @@
         <div class="stat-value" id="stat-tokens-today" style="text-align:center;font-size:1.5rem;">—</div>
       </div>
 
+      <div class="stat-card" style="text-align:center;">
+        <div class="stat-label" style="text-align:center;">Est. Cost Today</div>
+        <div class="stat-value" id="stat-cost-today" style="text-align:center;font-size:1.5rem;color:var(--amber);">—</div>
+      </div>
+
+    </div>
+
+    <!-- Running Tasks Panel -->
+    <div class="surface" style="margin-bottom:1.5rem;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+        <h2 style="font-size:0.875rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Running Now</h2>
+        <a href="/agents.html" style="font-size:0.75rem;color:var(--cyan);text-decoration:none;">View all agents →</a>
+      </div>
+      <div id="running-tasks">
+        <div style="color:var(--muted);font-size:0.875rem;">Loading…</div>
+      </div>
     </div>
 
     <!-- Footer -->
     <div style="text-align:center;color:var(--muted);font-size:0.75rem;padding-top:1rem;border-top:1px solid var(--border);">
       <span id="last-updated">Loading…</span>
-      &nbsp;·&nbsp; Auto-refresh every 30s &nbsp;·&nbsp; Mission Control v2
+      &nbsp;·&nbsp; Auto-refresh every 15s &nbsp;·&nbsp; Mission Control v2
     </div>
   </main>
 

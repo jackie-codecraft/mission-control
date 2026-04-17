@@ -1,19 +1,24 @@
-// tokens.js — Token charts + breakdowns
+// tokens.js — Token charts + breakdowns + cost estimates
 
 async function loadTokens() {
   try {
     const data = await MC.apiFetch('/api/tokens');
 
-    // Summary cards
+    // Token summary cards
     document.getElementById('tokens-today').textContent = MC.formatTokens(data.tokensToday);
     document.getElementById('tokens-week').textContent = MC.formatTokens(data.tokensWeek);
     document.getElementById('tokens-month').textContent = MC.formatTokens(data.tokensMonth);
 
-    // By model
-    renderModelBreakdown(data.byModel || {});
+    // Cost summary cards
+    document.getElementById('cost-today').textContent = MC.formatCost(data.costToday);
+    document.getElementById('cost-week').textContent = MC.formatCost(data.costWeek);
+    document.getElementById('cost-month').textContent = MC.formatCost(data.costMonth);
+
+    // By model (with cost column)
+    renderModelBreakdown(data.byModel || {}, data.costByModel || {});
 
     // By scope
-    renderScopeBreakdown(data.byScope || {});
+    renderScopeBreakdown(data.byScope || {}, data.costByScope || {});
 
     // Daily chart
     renderDailyChart(data.dailyChart || []);
@@ -24,7 +29,7 @@ async function loadTokens() {
   }
 }
 
-function renderModelBreakdown(byModel) {
+function renderModelBreakdown(byModel, costByModel) {
   const total = Object.values(byModel).reduce((a, b) => a + b, 0);
   const sorted = Object.entries(byModel).sort((a, b) => b[1] - a[1]);
 
@@ -38,11 +43,17 @@ function renderModelBreakdown(byModel) {
   document.getElementById('model-breakdown').innerHTML = sorted.map(([model, tokens], i) => {
     const pct = total ? Math.round((tokens / total) * 100) : 0;
     const color = colors[i % colors.length];
+    const cost = costByModel[model] || 0;
+    const modelShort = model.split('/').pop();
     return `
-      <div style="margin-bottom:0.875rem;">
-        <div style="display:flex;justify-content:space-between;margin-bottom:0.25rem;">
-          <span style="font-size:0.875rem;font-weight:500;">${MC.escHtml(model)}</span>
-          <span style="font-family:monospace;font-size:0.875rem;">${MC.formatTokens(tokens)} <span style="color:var(--muted);">(${pct}%)</span></span>
+      <div style="margin-bottom:1rem;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:0.25rem;gap:0.5rem;">
+          <span style="font-size:0.8125rem;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;">${MC.escHtml(modelShort)}</span>
+          <span style="font-family:monospace;font-size:0.8125rem;white-space:nowrap;">
+            ${MC.formatTokens(tokens)}
+            <span style="color:var(--amber);margin-left:0.5rem;">${MC.formatCost(cost)}</span>
+            <span style="color:var(--muted);"> (${pct}%)</span>
+          </span>
         </div>
         <div class="progress-bar">
           <div style="height:100%;border-radius:999px;background:${color};width:${pct}%;transition:width 0.3s;"></div>
@@ -52,7 +63,7 @@ function renderModelBreakdown(byModel) {
   }).join('');
 }
 
-function renderScopeBreakdown(byScope) {
+function renderScopeBreakdown(byScope, costByScope) {
   const total = Object.values(byScope).reduce((a, b) => a + b, 0);
   const sorted = Object.entries(byScope).sort((a, b) => b[1] - a[1]).slice(0, 10);
 
@@ -63,16 +74,17 @@ function renderScopeBreakdown(byScope) {
 
   document.getElementById('scope-breakdown').innerHTML = sorted.map(([scope, tokens]) => {
     const pct = total ? Math.round((tokens / total) * 100) : 0;
+    const cost = costByScope[scope] || 0;
     return `
       <div style="display:flex;align-items:center;gap:0.75rem;padding:0.5rem 0;border-bottom:1px solid var(--border);">
-        <span class="badge badge-purple" style="font-size:0.65rem;min-width:80px;text-align:center;">${MC.escHtml(scope)}</span>
+        <span class="badge badge-purple" style="font-size:0.65rem;min-width:80px;text-align:center;overflow:hidden;text-overflow:ellipsis;">${MC.escHtml(scope)}</span>
         <div style="flex:1;">
           <div class="progress-bar">
             <div style="height:100%;border-radius:999px;background:rgba(167,139,250,0.5);width:${pct}%;transition:width 0.3s;"></div>
           </div>
         </div>
-        <span style="font-family:monospace;font-size:0.8125rem;min-width:60px;text-align:right;">${MC.formatTokens(tokens)}</span>
-        <span style="font-size:0.75rem;color:var(--muted);min-width:35px;text-align:right;">${pct}%</span>
+        <span style="font-family:monospace;font-size:0.75rem;min-width:55px;text-align:right;">${MC.formatTokens(tokens)}</span>
+        <span style="font-size:0.75rem;color:var(--amber);min-width:50px;text-align:right;">${MC.formatCost(cost)}</span>
       </div>
     `;
   }).join('');
@@ -92,7 +104,7 @@ function renderDailyChart(dailyChart) {
     const isToday = d.date === new Date().toISOString().slice(0, 10);
     return `
       <div style="display:flex;flex-direction:column;align-items:center;flex:1;">
-        <div style="font-size:0.65rem;color:var(--muted);margin-bottom:2px;">${d.tokens ? MC.formatTokens(d.tokens) : ''}</div>
+        <div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;white-space:nowrap;">${d.tokens ? MC.formatTokens(d.tokens) : ''}</div>
         <div style="width:100%;background:${isToday ? 'var(--cyan)' : 'rgba(0,210,255,0.3)'};border-radius:3px 3px 0 0;height:${h}px;min-height:2px;transition:height 0.3s;" title="${d.date}: ${MC.formatNumber(d.tokens)} tokens"></div>
         <div style="font-size:0.6rem;color:var(--muted);margin-top:3px;transform:rotate(-45deg);transform-origin:top center;white-space:nowrap;">${label}</div>
       </div>

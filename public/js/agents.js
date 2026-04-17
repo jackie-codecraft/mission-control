@@ -1,29 +1,31 @@
-// agents.js — Live agent cards + modal
+// agents.js — Live agent cards + modal + kill action
 
 let selectedAgent = null;
+let allAgents = {};
+let killInProgress = false;
 
 function renderAgentCard(agent, statusClass) {
   const runtime = agent.runtime ? MC.formatRuntime(agent.runtime) : '—';
   const tokens = MC.formatTokens(agent.tokens);
-  const task = agent.task ? agent.task.slice(0, 80) + (agent.task.length > 80 ? '…' : '') : '—';
+  const task = agent.task ? agent.task.slice(0, 100) + (agent.task.length > 100 ? '…' : '') : '—';
 
   return `
     <div class="agent-card ${statusClass}" onclick="showModal('${escId(agent.id)}')">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.5rem;">
-        <span style="font-size:0.875rem;font-weight:600;color:var(--text);">${MC.escHtml(agent.label || 'agent')}</span>
+        <span style="font-size:0.875rem;font-weight:600;color:var(--text);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${MC.escHtml(agent.label || 'agent')}</span>
         ${statusClass === 'running'
-          ? '<span style="width:8px;height:8px;border-radius:50%;background:#3b82f6;flex-shrink:0;margin-top:4px;" class="pulse-blue"></span>'
+          ? '<span style="width:8px;height:8px;border-radius:50%;background:#3b82f6;flex-shrink:0;margin-top:4px;margin-left:0.5rem;" class="pulse-blue"></span>'
           : statusClass === 'completed'
-          ? '<span class="dot dot-green"></span>'
+          ? '<span class="dot dot-green" style="margin-left:0.5rem;margin-top:4px;"></span>'
           : statusClass === 'killed'
-          ? '<span class="dot dot-red"></span>'
-          : '<span class="dot dot-gray"></span>'}
+          ? '<span class="dot dot-red" style="margin-left:0.5rem;margin-top:4px;"></span>'
+          : '<span class="dot dot-gray" style="margin-left:0.5rem;margin-top:4px;"></span>'}
       </div>
-      <div style="font-size:0.75rem;color:var(--muted);margin-bottom:0.75rem;line-height:1.4;">${MC.escHtml(task)}</div>
-      <div style="display:flex;gap:1rem;font-size:0.75rem;color:var(--muted);">
+      <div style="font-size:0.75rem;color:var(--muted);margin-bottom:0.75rem;line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">${MC.escHtml(task)}</div>
+      <div style="display:flex;gap:1rem;font-size:0.75rem;color:var(--muted);justify-content:space-between;">
         <span>⏱ ${runtime}</span>
         <span>🔤 ${tokens}</span>
-        <span style="color:var(--subtle);">${agent.model ? agent.model.split('/').pop() : '—'}</span>
+        <span style="color:var(--subtle);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${agent.model ? agent.model.split('/').pop() : '—'}</span>
       </div>
     </div>
   `;
@@ -33,10 +35,7 @@ function escId(id) {
   return String(id || '').replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
-let allAgents = {};
-
 function showModal(agentId) {
-  // Find agent across all groups
   const all = [
     ...(allAgents.running || []),
     ...(allAgents.completed || []),
@@ -48,15 +47,24 @@ function showModal(agentId) {
 
   selectedAgent = agent;
   const runtime = agent.runtime ? MC.formatRuntime(agent.runtime) : '—';
+  const isRunning = agent.status === 'running' || agent.status === 'active';
 
   document.getElementById('modal').style.display = 'flex';
   document.getElementById('modal-content').innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:1.25rem;">
       <div>
         <h3 style="font-size:1.125rem;font-weight:700;margin:0 0 0.25rem;">${MC.escHtml(agent.label || 'Agent')}</h3>
-        <div style="color:var(--muted);font-size:0.875rem;">${agent.channel || 'No channel'}</div>
+        <div style="color:var(--muted);font-size:0.875rem;">${MC.escHtml(agent.channel || 'No channel')}</div>
       </div>
-      <button onclick="closeModal()" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:1.25rem;line-height:1;">&times;</button>
+      <div style="display:flex;gap:0.5rem;align-items:center;">
+        ${isRunning ? `
+          <button id="kill-btn" onclick="killAgent(event, '${MC.escHtml(agent.key || agent.id)}')"
+            style="background:rgba(239,68,68,0.15);color:var(--red);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:0.375rem 0.75rem;font-size:0.8125rem;cursor:pointer;font-weight:500;">
+            Kill
+          </button>
+        ` : ''}
+        <button onclick="closeModal()" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:1.25rem;line-height:1;">&times;</button>
+      </div>
     </div>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;">
@@ -70,7 +78,7 @@ function showModal(agentId) {
       </div>
       <div class="card-sm">
         <div class="stat-label">Model</div>
-        <div style="font-size:0.875rem;margin-top:0.25rem;">${MC.escHtml(agent.model || '—')}</div>
+        <div style="font-size:0.875rem;margin-top:0.25rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${MC.escHtml(agent.model || '—')}</div>
       </div>
       <div class="card-sm">
         <div class="stat-label">Tokens</div>
@@ -81,16 +89,62 @@ function showModal(agentId) {
     ${agent.task ? `
       <div style="margin-bottom:1rem;">
         <div class="stat-label" style="margin-bottom:0.5rem;">Task</div>
-        <div style="background:var(--bg);border-radius:8px;padding:0.75rem;font-size:0.8125rem;line-height:1.6;color:var(--subtle);">${MC.escHtml(agent.task)}</div>
+        <div style="background:var(--bg);border-radius:8px;padding:0.75rem;font-size:0.8125rem;line-height:1.6;color:var(--subtle);max-height:200px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;">${MC.escHtml(agent.task)}</div>
       </div>
     ` : ''}
 
+    <div id="kill-status" style="display:none;margin-bottom:0.75rem;padding:0.5rem 0.75rem;border-radius:8px;font-size:0.875rem;"></div>
+
     <div style="font-size:0.75rem;color:var(--muted);display:flex;flex-direction:column;gap:0.25rem;">
       ${agent.id ? `<div>Session: <span style="font-family:monospace;">${MC.escHtml(agent.id)}</span></div>` : ''}
+      ${agent.key ? `<div>Key: <span style="font-family:monospace;font-size:0.7rem;">${MC.escHtml(agent.key)}</span></div>` : ''}
       ${agent.spawnTime ? `<div>Spawned: ${MC.timeAgo(agent.spawnTime)} (${new Date(agent.spawnTime).toLocaleString()})</div>` : ''}
       ${agent.parentId ? `<div>Parent: <span style="font-family:monospace;">${MC.escHtml(agent.parentId)}</span></div>` : ''}
     </div>
   `;
+}
+
+async function killAgent(event, key) {
+  event.stopPropagation();
+  if (killInProgress) return;
+
+  const btn = document.getElementById('kill-btn');
+  const statusEl = document.getElementById('kill-status');
+  if (btn) { btn.disabled = true; btn.textContent = 'Killing…'; }
+
+  killInProgress = true;
+  try {
+    const result = await MC.apiPost('/api/agents/kill', { key });
+    if (result.ok) {
+      if (statusEl) {
+        statusEl.style.display = 'block';
+        statusEl.style.background = 'rgba(34,197,94,0.1)';
+        statusEl.style.color = 'var(--green)';
+        statusEl.textContent = 'Agent killed successfully';
+      }
+      if (btn) btn.style.display = 'none';
+      setTimeout(() => { closeModal(); loadAgents(); }, 1500);
+    } else {
+      const msg = result.data?.error || 'Kill failed';
+      if (statusEl) {
+        statusEl.style.display = 'block';
+        statusEl.style.background = 'rgba(239,68,68,0.1)';
+        statusEl.style.color = 'var(--red)';
+        statusEl.textContent = msg;
+      }
+      if (btn) { btn.disabled = false; btn.textContent = 'Kill'; }
+    }
+  } catch (e) {
+    if (statusEl) {
+      statusEl.style.display = 'block';
+      statusEl.style.background = 'rgba(239,68,68,0.1)';
+      statusEl.style.color = 'var(--red)';
+      statusEl.textContent = e.message;
+    }
+    if (btn) { btn.disabled = false; btn.textContent = 'Kill'; }
+  } finally {
+    killInProgress = false;
+  }
 }
 
 function closeModal() {
@@ -159,8 +213,8 @@ async function loadAgents() {
       document.getElementById('recent-activity').innerHTML = activity.map(e => `
         <div style="display:flex;align-items:center;gap:0.75rem;padding:0.5rem 0;border-bottom:1px solid var(--border);font-size:0.8125rem;">
           ${MC.typeBadge(e.type)}
-          <span style="flex:1;color:var(--text);">${MC.escHtml(e.label || e.summary || e.type)}</span>
-          <span style="color:var(--muted);">${MC.timeAgo(e.timestamp)}</span>
+          <span style="flex:1;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${MC.escHtml(e.label || e.summary || e.type)}</span>
+          <span style="color:var(--muted);white-space:nowrap;">${MC.timeAgo(e.timestamp)}</span>
         </div>
       `).join('');
     } else {
@@ -170,6 +224,7 @@ async function loadAgents() {
     document.getElementById('last-updated').textContent = 'Updated ' + MC.timeAgo(data.timestamp);
   } catch (e) {
     console.error('Agents load failed:', e);
+    document.getElementById('subagents').innerHTML = `<div style="color:var(--red);padding:2rem;text-align:center;">Load failed: ${MC.escHtml(e.message)}</div>`;
   }
 }
 
@@ -180,5 +235,14 @@ document.addEventListener('DOMContentLoaded', () => {
   // Close modal on overlay click
   document.getElementById('modal').addEventListener('click', (e) => {
     if (e.target === document.getElementById('modal')) closeModal();
+  });
+
+  // SSE: refresh on kill/new events
+  MC.connectSSE({
+    'agent.killed': () => { closeModal(); loadAgents(); },
+    'event.new': () => loadAgents(),
+    'stats.update': (msg) => {
+      // Update running count in main header
+    },
   });
 });

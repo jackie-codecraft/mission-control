@@ -90,22 +90,29 @@ function renderRunningTasks(agents) {
     return;
   }
 
-  el.innerHTML = agents.map(a => `
-    <div style="display:flex;align-items:flex-start;gap:0.75rem;padding:0.625rem 0;border-bottom:1px solid var(--border);">
-      <span style="width:8px;height:8px;border-radius:50%;background:#3b82f6;flex-shrink:0;margin-top:5px;" class="pulse-blue"></span>
-      <div style="flex:1;min-width:0;">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;">
-          <span style="font-size:0.875rem;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${MC.escHtml(a.label || 'agent')}</span>
-          <span style="font-size:0.75rem;color:var(--muted);white-space:nowrap;">⏱ ${a.runtime ? MC.formatRuntime(a.runtime) : '—'}</span>
-        </div>
-        ${a.task ? `<div style="font-size:0.75rem;color:var(--muted);margin-top:0.2rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${MC.escHtml(a.task)}</div>` : ''}
-        <div style="font-size:0.7rem;color:var(--subtle);margin-top:0.2rem;">
-          ${a.model ? MC.escHtml(a.model.split('/').pop()) : '—'}
-          ${a.tokens ? ' · ' + MC.formatTokens(a.tokens) + ' tokens' : ''}
+  el.innerHTML = agents.map(a => {
+    const sessionHref = a.key ? `/session.html?key=${encodeURIComponent(a.key)}` : null;
+    const taskSnippet = a.task ? a.task.slice(0, 140) + (a.task.length > 140 ? '…' : '') : null;
+    return `
+      <div style="display:flex;align-items:flex-start;gap:0.75rem;padding:0.625rem 0;border-bottom:1px solid var(--border);">
+        <span style="width:8px;height:8px;border-radius:50%;background:#3b82f6;flex-shrink:0;margin-top:5px;" class="pulse-blue"></span>
+        <div style="flex:1;min-width:0;">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+            ${sessionHref
+              ? `<a href="${sessionHref}" style="font-size:0.875rem;font-weight:500;color:var(--text);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" onmouseover="this.style.color='var(--cyan)'" onmouseout="this.style.color='var(--text)'">${MC.escHtml(a.label || 'agent')}</a>`
+              : `<span style="font-size:0.875rem;font-weight:500;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${MC.escHtml(a.label || 'agent')}</span>`
+            }
+            <span style="font-size:0.75rem;color:var(--muted);white-space:nowrap;flex-shrink:0;">⏱ ${a.runtime ? MC.formatRuntime(a.runtime) : '—'}</span>
+          </div>
+          ${taskSnippet ? `<div style="font-size:0.75rem;color:var(--muted);margin-top:0.25rem;line-height:1.5;">${MC.escHtml(taskSnippet)}</div>` : ''}
+          <div style="font-size:0.7rem;color:var(--subtle);margin-top:0.2rem;">
+            ${a.model ? MC.escHtml(a.model.split('/').pop()) : '—'}
+            ${a.tokens ? ' · ' + MC.formatTokens(a.tokens) + ' tokens' : ''}
+          </div>
         </div>
       </div>
-    </div>
-  `).join('');
+    `;
+  }).join('');
 }
 
 document.addEventListener('DOMContentLoaded', () => {

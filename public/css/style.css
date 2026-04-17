@@ -462,11 +462,42 @@ select option {
   background: rgba(239,68,68,0.25);
 }
 
+/* Responsive grid utilities */
+.grid-4 {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+}
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
 /* Responsive */
+@media (max-width: 900px) {
+  .grid-4 { grid-template-columns: repeat(2, 1fr); }
+}
+
 @media (max-width: 768px) {
-  .nav-tab span { display: none; }
   .page { padding: 1rem; }
   .stat-value { font-size: 1.5rem; }
+  .grid-2 { grid-template-columns: 1fr; }
+  .nav-tab { padding: 0.35rem 0.5rem; font-size: 0.8rem; }
+  .nav-tab .nav-tab-label { display: none; }
+  .nav-brand span:last-child { display: none; }
+  .modal-content { padding: 1rem; }
+  .filter-bar { flex-direction: column; }
+  .filter-bar > div { width: 100%; }
+  .filter-bar select, .filter-bar input { width: 100%; }
+}
+
+@media (max-width: 480px) {
+  .grid-4 { grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+  .page { padding: 0.75rem; }
+  .stat-value { font-size: 1.3rem; }
+  .nav-inner { padding: 0 0.75rem; }
 }
 
 /* Loading overlay */

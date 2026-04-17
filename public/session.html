@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mission Control — Session</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div id="nav"></div>
+
+  <main class="page">
+    <div style="margin-bottom:1rem;">
+      <a href="/agents.html" style="font-size:0.875rem;color:var(--muted);text-decoration:none;">← Back to Agents</a>
+    </div>
+
+    <div id="session-error" style="display:none;" class="surface" style="margin-bottom:1.5rem;">
+      <div style="color:var(--red);padding:1rem;">Session not found or failed to load.</div>
+    </div>
+
+    <!-- Header card -->
+    <div class="surface" id="session-header" style="margin-bottom:1.5rem;display:none;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap;">
+        <div>
+          <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.25rem;">
+            <span id="s-status-dot" class="dot dot-gray"></span>
+            <h1 id="s-label" style="font-size:1.25rem;font-weight:700;margin:0;">—</h1>
+          </div>
+          <div id="s-key" style="font-family:'JetBrains Mono',monospace;font-size:0.7rem;color:var(--muted);word-break:break-all;"></div>
+        </div>
+        <div style="display:flex;gap:0.5rem;align-items:center;flex-shrink:0;">
+          <span id="s-status-badge"></span>
+          <button id="kill-btn" onclick="killSession()" style="display:none;background:rgba(239,68,68,0.15);color:var(--red);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:0.375rem 0.75rem;font-size:0.8125rem;cursor:pointer;font-weight:500;">Kill</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Stats grid -->
+    <div id="session-stats" class="grid-4" style="margin-bottom:1.5rem;display:none;">
+      <div class="stat-card">
+        <div class="stat-label">Status</div>
+        <div id="s-status" class="stat-value" style="font-size:1.1rem;">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Runtime</div>
+        <div id="s-runtime" class="stat-value" style="font-size:1.1rem;">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Tokens</div>
+        <div id="s-tokens" class="stat-value" style="font-size:1.1rem;">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Context</div>
+        <div id="s-context" class="stat-value" style="font-size:1.1rem;">—</div>
+        <div class="progress-bar" style="margin-top:0.5rem;">
+          <div class="progress-fill" id="s-context-bar" style="width:0%"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Task / Description -->
+    <div class="surface" id="session-task" style="margin-bottom:1.5rem;display:none;">
+      <h2 style="font-size:0.875rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.75rem;">Task</h2>
+      <div id="s-task" style="font-size:0.875rem;line-height:1.7;color:var(--subtle);white-space:pre-wrap;word-break:break-word;max-height:500px;overflow-y:auto;background:var(--bg);border-radius:8px;padding:1rem;"></div>
+    </div>
+
+    <!-- Metadata -->
+    <div class="surface" id="session-meta" style="display:none;">
+      <h2 style="font-size:0.875rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.75rem;">Metadata</h2>
+      <div style="display:flex;flex-direction:column;gap:0.5rem;font-size:0.875rem;" id="s-meta-rows"></div>
+    </div>
+
+    <div id="session-loading" class="surface" style="text-align:center;padding:3rem;color:var(--muted);">
+      Loading session…
+    </div>
+  </main>
+
+  <script src="/js/shared.js"></script>
+  <script src="/js/session.js"></script>
+</body>
+</html>

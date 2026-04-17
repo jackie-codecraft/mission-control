@@ -21,9 +21,9 @@ function renderNav(activeHref) {
         </a>
         <div class="nav-tabs">
           ${NAV_TABS.map(t => `
-            <a href="${t.href}" class="nav-tab ${active === t.href ? 'active' : ''}">
-              <span class="mr-1">${t.icon}</span>
-              <span>${t.label}</span>
+            <a href="${t.href}" class="nav-tab ${active === t.href ? 'active' : ''}" title="${t.label}">
+              <span>${t.icon}</span>
+              <span class="nav-tab-label">${t.label}</span>
             </a>
           `).join('')}
         </div>

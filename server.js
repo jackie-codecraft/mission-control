@@ -24,6 +24,42 @@ const CLI_ENV = { ...process.env, PATH: process.env.PATH + ':' + NPM_BIN };
 app.use(express.json());
 app.use(cookieParser());
 
+// ── Security headers ──────────────────────────────────────────────────────────
+
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self'; " +
+    "script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; " +
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+    "font-src https://fonts.gstatic.com; " +
+    "connect-src 'self'; " +
+    "img-src 'self' data:;"
+  );
+  next();
+});
+
+// ── Login rate limiting ───────────────────────────────────────────────────────
+
+const loginAttempts = new Map();
+const LOGIN_MAX = 10;
+const LOGIN_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+
+function checkLoginRateLimit(ip) {
+  const now = Date.now();
+  const entry = loginAttempts.get(ip) || { count: 0, windowStart: now };
+  if (now - entry.windowStart > LOGIN_WINDOW_MS) {
+    entry.count = 0;
+    entry.windowStart = now;
+  }
+  entry.count++;
+  loginAttempts.set(ip, entry);
+  return entry.count <= LOGIN_MAX;
+}
+
 // ── SSE clients ───────────────────────────────────────────────────────────────
 
 const sseClients = new Set();
@@ -115,8 +151,16 @@ app.get('/login', (req, res) => {
 });
 
 app.post('/api/login', (req, res) => {
+  const ip = req.ip || req.connection.remoteAddress || 'unknown';
+  if (!checkLoginRateLimit(ip)) {
+    return res.status(429).json({ error: 'Too many attempts, try again later' });
+  }
   if (req.body.password === PASSWORD) {
-    res.cookie(AUTH_COOKIE, AUTH_VALUE, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000 });
+    res.cookie(AUTH_COOKIE, AUTH_VALUE, {
+      httpOnly: true,
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      sameSite: 'strict',
+    });
     res.json({ ok: true });
   } else {
     res.status(401).json({ error: 'Invalid password' });
@@ -470,6 +514,63 @@ app.get('/api/config', (req, res) => {
     githubEnabled: !!GITHUB_TOKEN,
     githubOrg: GITHUB_ORG,
   });
+});
+
+// Session detail — returns enriched info for a single session by key
+app.get('/api/session', async (req, res) => {
+  const key = req.query.key;
+  if (!key || typeof key !== 'string') return res.status(400).json({ error: 'key is required' });
+
+  try {
+    const sessionsJson = sessions.loadSessionsJson();
+    const entry = sessionsJson[key];
+    if (!entry) return res.status(404).json({ error: 'Session not found' });
+
+    // Enrich with full task brief (may be large)
+    let task = null;
+    if (entry.sessionFile) {
+      task = sessions.extractTaskBrief(entry.sessionFile);
+    }
+
+    const now = Date.now();
+    const spawnTime = entry.createdAt || entry.startTime || entry.updatedAt || null;
+    const runtime = spawnTime ? Math.round((now - spawnTime) / 1000) : null;
+
+    // Determine status using same logic as parseSessions
+    const isSubagent = key.includes(':subagent:');
+    const tokens = entry.totalTokens || 0;
+    let status = entry.status || 'unknown';
+    if (isSubagent) {
+      const ageMs = entry.updatedAt ? (now - entry.updatedAt) : null;
+      if (entry.abortedLastRun) status = 'killed';
+      else if (tokens > 0) status = 'done';
+      else if (ageMs !== null && ageMs > 300000) status = 'killed';
+      else status = 'running';
+    } else {
+      status = 'running';
+    }
+
+    res.json({
+      key,
+      label: entry.label || key,
+      model: entry.model || entry.modelOverride || null,
+      status,
+      tokens,
+      contextLimit: entry.contextTokens || 200000,
+      contextPercent: entry.contextTokens ? Math.round((tokens / entry.contextTokens) * 100) : null,
+      spawnTime: spawnTime ? new Date(spawnTime).toISOString() : null,
+      updatedAt: entry.updatedAt ? new Date(entry.updatedAt).toISOString() : null,
+      runtime,
+      task,
+      channel: entry.channel || entry.kind || null,
+      depth: entry.depth || 0,
+      parentId: entry.parentId || null,
+      sessionFile: entry.sessionFile ? path.basename(entry.sessionFile) : null,
+      abortedLastRun: entry.abortedLastRun || false,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ── Start ─────────────────────────────────────────────────────────────────────
